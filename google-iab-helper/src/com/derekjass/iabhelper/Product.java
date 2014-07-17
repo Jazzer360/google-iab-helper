@@ -3,7 +3,19 @@ package com.derekjass.iabhelper;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+/**
+ * An immutable class representing an in-app product listing.
+ */
 public class Product {
+
+	/**
+	 * String that represents the product type for managed products.
+	 */
+	public static final String MANAGED_PRODUCT = "inapp";
+	/**
+	 * String that represents the product type for subscriptions.
+	 */
+	public static final String SUBSCRIPTION = "subs";
 
 	private static final String PRODUCT_ID = "productId";
 	private static final String TYPE = "type";
@@ -45,8 +57,8 @@ public class Product {
 	 * Returns the product type. This may be one of two values:
 	 * 
 	 * <ul>
-	 * <li>{@code "inapp"} - for in-app managed products
-	 * <li>{@code "subs"} - for subscriptions
+	 * <li>{@link MANAGED_PRODUCT}
+	 * <li>{@link SUBSCRIPTION}
 	 * </ul>
 	 * 
 	 * @return the product type
@@ -86,6 +98,24 @@ public class Product {
 	 */
 	public String getDescription() {
 		return mDescription;
+	}
+
+	/**
+	 * Returns {@code true} if the product is an in-app managed product.
+	 * 
+	 * @return {@code true} if the product is a managed product
+	 */
+	public boolean isManagedProduct() {
+		return mType.equals(MANAGED_PRODUCT);
+	}
+
+	/**
+	 * Returns {@code true} if the product is a subscription.
+	 * 
+	 * @return {@code true} if the product is a subscription
+	 */
+	public boolean isSubscription() {
+		return mType.equals(SUBSCRIPTION);
 	}
 
 	@Override
