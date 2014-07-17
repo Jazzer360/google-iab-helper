@@ -150,6 +150,15 @@ public class Purchase {
 		return mJson;
 	}
 
+	/**
+	 * Returns {@code true} if the this purchase's state is purchased
+	 * 
+	 * @return true if purchased
+	 */
+	public boolean isPurchased() {
+		return mPurchaseState == PURCHASE_STATE_PURCHASED;
+	}
+
 	@Override
 	public String toString() {
 		return "Purchase: " + mJson;
