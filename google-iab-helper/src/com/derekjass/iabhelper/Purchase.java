@@ -16,8 +16,17 @@ public class Purchase {
 	private static final String DEVELOPER_PAYLOAD = "developerPayload";
 	private static final String PURCHASE_TOKEN = "purchaseToken";
 
+	/**
+	 * Purchased state: Purchased
+	 */
 	public static final int PURCHASE_STATE_PURCHASED = 0;
+	/**
+	 * Purchased state: Canceled
+	 */
 	public static final int PURCHASE_STATE_CANCELED = 1;
+	/**
+	 * Purchased state: Refunded
+	 */
 	public static final int PURCHASE_STATE_REFUNDED = 2;
 
 	private final String mOrderId;
@@ -91,9 +100,9 @@ public class Purchase {
 	 * of the associated product:
 	 * 
 	 * <ul>
-	 * <li>{@link PURCHASE_STATE_PURCHASED}
-	 * <li>{@link PURCHASE_STATE_CANCELED}
-	 * <li>{@link PURCHASE_STATE_REFUNDED}
+	 * <li>{@link #PURCHASE_STATE_PURCHASED}
+	 * <li>{@link #PURCHASE_STATE_CANCELED}
+	 * <li>{@link #PURCHASE_STATE_REFUNDED}
 	 * </ul>
 	 * 
 	 * @return

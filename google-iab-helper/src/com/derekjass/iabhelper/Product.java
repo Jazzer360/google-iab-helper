@@ -57,8 +57,8 @@ public class Product {
 	 * Returns the product type. This may be one of two values:
 	 * 
 	 * <ul>
-	 * <li>{@link MANAGED_PRODUCT}
-	 * <li>{@link SUBSCRIPTION}
+	 * <li>{@link #MANAGED_PRODUCT}
+	 * <li>{@link #SUBSCRIPTION}
 	 * </ul>
 	 * 
 	 * @return the product type
