@@ -16,10 +16,12 @@ public class Product {
 	private final String mPrice;
 	private final String mTitle;
 	private final String mDescription;
+	private final String mJson;
 
-	Product(String jsonString) {
+	Product(String json) {
+		mJson = json;
 		try {
-			JSONObject jo = new JSONObject(jsonString);
+			JSONObject jo = new JSONObject(json);
 			mProductId = jo.optString(PRODUCT_ID);
 			mType = jo.optString(TYPE);
 			mPrice = jo.optString(PRICE);
@@ -30,23 +32,64 @@ public class Product {
 		}
 	}
 
-	public String getmProductId() {
+	/**
+	 * Returns the product ID of the product, also known as the SKU.
+	 * 
+	 * @return the product ID
+	 */
+	public String getProductId() {
 		return mProductId;
 	}
 
-	public String getmType() {
+	/**
+	 * Returns the product type. This may be one of two values:
+	 * 
+	 * <ul>
+	 * <li>{@code "inapp"} - for in-app managed products
+	 * <li>{@code "subs"} - for subscriptions
+	 * </ul>
+	 * 
+	 * @return the product type
+	 */
+	public String getType() {
 		return mType;
 	}
 
-	public String getmPrice() {
+	/**
+	 * Returns the price of the product as a formatted string including the
+	 * currency sign.
+	 * 
+	 * <p>
+	 * Example - {@code "$2.99"}
+	 * 
+	 * @return the price of the product
+	 */
+	public String getPrice() {
 		return mPrice;
 	}
 
-	public String getmTitle() {
+	/**
+	 * Returns the title of the product as was entered in the Google play
+	 * developer console.
+	 * 
+	 * @return the title of the product
+	 */
+	public String getTitle() {
 		return mTitle;
 	}
 
-	public String getmDescription() {
+	/**
+	 * Returns the description of the product as was entered in the Google play
+	 * developer console.
+	 * 
+	 * @return the description of the product
+	 */
+	public String getDescription() {
 		return mDescription;
+	}
+
+	@Override
+	public String toString() {
+		return "Product: " + mJson;
 	}
 }
