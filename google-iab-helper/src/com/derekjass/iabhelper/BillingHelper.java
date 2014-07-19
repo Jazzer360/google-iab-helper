@@ -1,7 +1,9 @@
 package com.derekjass.iabhelper;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,6 +23,61 @@ import android.os.RemoteException;
 
 import com.android.vending.billing.IInAppBillingService;
 
+/**
+ * A helper class to assist with using the Google Play in-app billing service.
+ * <h1>Setup</h1>
+ * <p>
+ * The helper uses a callback interface to deliver the results of the calls to
+ * Google's in app billing service. So first, you need an implementation of the
+ * {@link Callbacks} interface to handle any results of any of the in-app
+ * billing queries. Errors are handled by a separate interface (
+ * {@link ErrorHandler} ).
+ * <p>
+ * Next, you must obtain a new {@code BillingHelper} instance from one of the
+ * two static factory methods. Which one you use depends on if you're handling
+ * managed products, or subscriptions.
+ * <ul>
+ * <li>{@link #newManagedProductHelper(Context, Callbacks, ErrorHandler)}
+ * <li>{@link #newSubscriptionHelper(Context, Callbacks, ErrorHandler)}
+ * </ul>
+ * 
+ * <p>
+ * Once you have an instance, you must call {@link #connect()} to set up the
+ * connection to the in-app billing service. To avoid resource leaks, when not
+ * using the class, {@link #disconnect()} should be called. This should
+ * typically be done within the onStart/onStop lifecycle methods of an activity.
+ * <p>
+ * In order for the callback interface to receive the call to
+ * {@link Callbacks#onProductPurchased(Purchase)}, the activity used to call
+ * {@link #purchaseProduct(String, Activity, int)} must override it's
+ * onActivityResult(int, int, Intent) method to include a call to
+ * {@link #handleActivityResult(int, int, Intent)}.
+ * <h1>Querying Products</h1>
+ * <p>
+ * Querying the details of the available in-app products goes like this:
+ * 
+ * <pre>
+ * List&lt;String&gt; skus = new ArrayList&lt;String&gt;();
+ * skus.add(&quot;product_1&quot;);
+ * skus.add(&quot;product_2&quot;);
+ * mBillingHelper.queryProducts(skus);
+ * </pre>
+ * 
+ * Once the Google play service responds, the results are handed back to the
+ * callback interface that was provided when getting an instance of the
+ * {@code BillingHelper}. The call is made on the main thread of the app.
+ * <h1>Querying Purchases</h1>
+ * <p>
+ * Querying all of the user's purchases of in-app products is simple:
+ * 
+ * <pre>
+ * mBillingHelper.queryPurchases();
+ * </pre>
+ * 
+ * The results are delivered asynchronously to the callback interface.
+ * <h1>Purchasing</h1>
+ * 
+ */
 public class BillingHelper {
 
 	/**
@@ -119,14 +176,16 @@ public class BillingHelper {
 	private CountDownLatch mBindLatch;
 	private ExecutorService mExecutor;
 	private StaticResponse mStaticResponse;
+	private Set<Integer> mRequestCodes;
 
 	private BillingHelper(Context context, Callbacks callbacks,
 			ErrorHandler errorHandler, ProductType productType) {
-		mContext = context;
+		mContext = context.getApplicationContext();
 		mCallbacks = callbacks;
 		mErrorHandler = errorHandler;
 		mProductType = productType;
 		mHandler = new Handler(Looper.getMainLooper());
+		mRequestCodes = new HashSet<Integer>();
 		mConnection = new ServiceConnection() {
 			@Override
 			public void onServiceDisconnected(ComponentName name) {}
@@ -152,7 +211,7 @@ public class BillingHelper {
 	}
 
 	public void connect() {
-		mExecutor = Executors.newSingleThreadExecutor();
+		mExecutor = Executors.newCachedThreadPool();
 		mBindLatch = new CountDownLatch(1);
 		mContext.bindService(new Intent(
 				"com.android.vending.billing.InAppBillingService.BIND"),
@@ -161,6 +220,7 @@ public class BillingHelper {
 
 	public void disconnect() {
 		mExecutor.shutdownNow();
+		mExecutor = null;
 		mContext.unbindService(mConnection);
 		mService = null;
 	}
@@ -173,8 +233,7 @@ public class BillingHelper {
 			throw new IllegalArgumentException("ids must not be empty");
 		}
 		if (ids.size() > 20) {
-			throw new IllegalArgumentException(
-					"ids must contain at most 20 ids");
+			throw new IllegalArgumentException("ids may exceed 20 ids");
 		}
 		mExecutor.execute(new Runnable() {
 			@Override
@@ -307,7 +366,15 @@ public class BillingHelper {
 	public void handleActivityResult(int requestCode, int resultCode,
 			Intent data) {
 		if (resultCode != Activity.RESULT_OK) return;
-
+		int responseCode = data.getIntExtra(RESPONSE_CODE, 6);
+		if (responseCode != 0) {
+			deliverError(Error.fromResponseCode(responseCode));
+			return;
+		}
+		String purchase = data.getStringExtra("INNAPP_PURCHASE_DATA");
+		String signature = data.getStringExtra("INAPP_DATA_SIGNATURE");
+		Purchase result = new Purchase(purchase, signature);
+		deliverProductPurchased(result);
 	}
 
 	public void consumePurchase(Purchase purchase) {
@@ -315,6 +382,7 @@ public class BillingHelper {
 			throw new UnsupportedOperationException(
 					"Cannot consume a subscription");
 		}
+		// TODO
 	}
 
 	public void setStaticResponse(StaticResponse response) {
