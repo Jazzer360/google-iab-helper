@@ -220,43 +220,48 @@ public class BillingHelper {
 	}
 
 	public void queryPurchases() {
-		try {
-			String continuationToken = null;
-			List<Purchase> purchases = new ArrayList<Purchase>();
+		mExecutor.execute(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					String continuationToken = null;
+					List<Purchase> purchases = new ArrayList<Purchase>();
 
-			mBindLatch.await();
-			do {
-				Bundle result = mService.getPurchases(3,
-						mContext.getPackageName(), mProductType.token(),
-						continuationToken);
+					mBindLatch.await();
+					do {
+						Bundle result = mService.getPurchases(3,
+								mContext.getPackageName(),
+								mProductType.token(), continuationToken);
 
-				int resultCode = result.getInt(RESPONSE_CODE);
-				if (resultCode != 0) {
-					deliverError(Error.fromResponseCode(resultCode));
+						int resultCode = result.getInt(RESPONSE_CODE);
+						if (resultCode != 0) {
+							deliverError(Error.fromResponseCode(resultCode));
+							return;
+						}
+
+						ArrayList<String> jsonArray = result
+								.getStringArrayList("INAPP_PURCHASE_DATA_LIST");
+						ArrayList<String> signatures = result
+								.getStringArrayList("INAPP_DATA_SIGNATURE_LIST");
+						continuationToken = result
+								.getString("INAPP_CONTINUATION_TOKEN");
+
+						for (int i = 0; i < jsonArray.size(); i++) {
+							String json = jsonArray.get(i);
+							String signature = signatures.get(i);
+							purchases.add(new Purchase(json, signature));
+						}
+					} while (continuationToken != null);
+
+					deliverPurchasesQueried(purchases);
+				} catch (RemoteException e) {
+					deliverError(Error.REMOTE_EXCEPTION);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
 					return;
 				}
-
-				ArrayList<String> jsonArray = result
-						.getStringArrayList("INAPP_PURCHASE_DATA_LIST");
-				ArrayList<String> signatures = result
-						.getStringArrayList("INAPP_DATA_SIGNATURE_LIST");
-				continuationToken = result
-						.getString("INAPP_CONTINUATION_TOKEN");
-
-				for (int i = 0; i < jsonArray.size(); i++) {
-					String json = jsonArray.get(i);
-					String signature = signatures.get(i);
-					purchases.add(new Purchase(json, signature));
-				}
-			} while (continuationToken != null);
-
-			deliverPurchasesQueried(purchases);
-		} catch (RemoteException e) {
-			deliverError(Error.REMOTE_EXCEPTION);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			return;
-		}
+			}
+		});
 	}
 
 	public void purchaseProduct(String productId, Activity activity,
@@ -264,31 +269,39 @@ public class BillingHelper {
 		purchaseProduct(productId, null, activity, requestCode);
 	}
 
-	public void purchaseProduct(String productId, String payload,
-			Activity activity, int requestCode) {
+	public void purchaseProduct(final String productId, final String payload,
+			final Activity activity, final int requestCode) {
 		if (productId == null || activity == null) {
 			throw new IllegalArgumentException(
 					"productId and activity may not be null");
 		}
-		try {
-			String sku = getProductId(productId);
+		mExecutor.execute(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					String sku = getProductId(productId);
 
-			mBindLatch.await();
-			Bundle result = mService.getBuyIntent(3, mContext.getPackageName(),
-					sku, mProductType.token(), payload);
+					mBindLatch.await();
+					Bundle result = mService.getBuyIntent(3,
+							mContext.getPackageName(), sku,
+							mProductType.token(), payload);
 
-			PendingIntent intent = result.getParcelable("BUY_INTENT");
+					PendingIntent intent = result.getParcelable("BUY_INTENT");
 
-			activity.startIntentSenderForResult(intent.getIntentSender(),
-					requestCode, new Intent(), 0, 0, 0);
+					activity.startIntentSenderForResult(
+							intent.getIntentSender(), requestCode,
+							new Intent(), 0, 0, 0);
 
-		} catch (RemoteException e) {
-			deliverError(Error.REMOTE_EXCEPTION);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		} catch (SendIntentException e) {
-			deliverError(Error.PENDING_INTENT);
-		}
+				} catch (RemoteException e) {
+					deliverError(Error.REMOTE_EXCEPTION);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				} catch (SendIntentException e) {
+					deliverError(Error.PENDING_INTENT);
+				}
+			}
+		});
+
 	}
 
 	public void handleActivityResult(int requestCode, int resultCode,
