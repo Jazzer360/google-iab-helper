@@ -1,9 +1,7 @@
 package com.derekjass.iabhelper;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -139,7 +137,7 @@ public class BillingHelper {
 		ITEM_ALREADY_OWNED,
 		ITEM_NOT_OWNED,
 		REMOTE_EXCEPTION,
-		PENDING_INTENT;
+		SEND_INTENT_EXCEPTION;
 
 		private static Error fromResponseCode(int code) {
 			switch (code) {
@@ -166,6 +164,7 @@ public class BillingHelper {
 
 	private static final String RESPONSE_CODE = "RESPONSE_CODE";
 
+	private boolean mConnected;
 	private Context mContext;
 	private Callbacks mCallbacks;
 	private ErrorHandler mErrorHandler;
@@ -176,16 +175,15 @@ public class BillingHelper {
 	private CountDownLatch mBindLatch;
 	private ExecutorService mExecutor;
 	private StaticResponse mStaticResponse;
-	private Set<Integer> mRequestCodes;
 
 	private BillingHelper(Context context, Callbacks callbacks,
 			ErrorHandler errorHandler, ProductType productType) {
+		mConnected = false;
 		mContext = context.getApplicationContext();
 		mCallbacks = callbacks;
 		mErrorHandler = errorHandler;
 		mProductType = productType;
 		mHandler = new Handler(Looper.getMainLooper());
-		mRequestCodes = new HashSet<Integer>();
 		mConnection = new ServiceConnection() {
 			@Override
 			public void onServiceDisconnected(ComponentName name) {}
@@ -216,9 +214,11 @@ public class BillingHelper {
 		mContext.bindService(new Intent(
 				"com.android.vending.billing.InAppBillingService.BIND"),
 				mConnection, Context.BIND_AUTO_CREATE);
+		mConnected = true;
 	}
 
 	public void disconnect() {
+		mConnected = false;
 		mExecutor.shutdownNow();
 		mExecutor = null;
 		mContext.unbindService(mConnection);
@@ -235,6 +235,7 @@ public class BillingHelper {
 		if (ids.size() > 20) {
 			throw new IllegalArgumentException("ids may exceed 20 ids");
 		}
+		checkConnected();
 		mExecutor.execute(new Runnable() {
 			@Override
 			public void run() {
@@ -279,6 +280,7 @@ public class BillingHelper {
 	}
 
 	public void queryPurchases() {
+		checkConnected();
 		mExecutor.execute(new Runnable() {
 			@Override
 			public void run() {
@@ -308,7 +310,8 @@ public class BillingHelper {
 						for (int i = 0; i < jsonArray.size(); i++) {
 							String json = jsonArray.get(i);
 							String signature = signatures.get(i);
-							purchases.add(new Purchase(json, signature));
+							Purchase purchase = new Purchase(json, signature);
+							purchases.add(purchase);
 						}
 					} while (continuationToken != null);
 
@@ -323,17 +326,13 @@ public class BillingHelper {
 		});
 	}
 
-	public void purchaseProduct(String productId, Activity activity,
-			int requestCode) {
-		purchaseProduct(productId, null, activity, requestCode);
-	}
-
 	public void purchaseProduct(final String productId, final String payload,
 			final Activity activity, final int requestCode) {
 		if (productId == null || activity == null) {
 			throw new IllegalArgumentException(
 					"productId and activity may not be null");
 		}
+		checkConnected();
 		mExecutor.execute(new Runnable() {
 			@Override
 			public void run() {
@@ -344,6 +343,12 @@ public class BillingHelper {
 					Bundle result = mService.getBuyIntent(3,
 							mContext.getPackageName(), sku,
 							mProductType.token(), payload);
+
+					int resultCode = result.getInt(RESPONSE_CODE);
+					if (resultCode != 0) {
+						deliverError(Error.fromResponseCode(resultCode));
+						return;
+					}
 
 					PendingIntent intent = result.getParcelable("BUY_INTENT");
 
@@ -356,7 +361,7 @@ public class BillingHelper {
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 				} catch (SendIntentException e) {
-					deliverError(Error.PENDING_INTENT);
+					deliverError(Error.SEND_INTENT_EXCEPTION);
 				}
 			}
 		});
@@ -377,16 +382,41 @@ public class BillingHelper {
 		deliverProductPurchased(result);
 	}
 
-	public void consumePurchase(Purchase purchase) {
+	public void consumePurchase(final Purchase purchase) {
 		if (mProductType == ProductType.SUBSCRIPTION) {
 			throw new UnsupportedOperationException(
 					"Cannot consume a subscription");
 		}
-		// TODO
+		checkConnected();
+		mExecutor.execute(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					int resultCode = mService.consumePurchase(3,
+							mContext.getPackageName(),
+							purchase.getPurchaseToken());
+
+					if (resultCode != 0) {
+						deliverError(Error.fromResponseCode(resultCode));
+						return;
+					}
+
+					deliverPurchaseConsumed(purchase);
+				} catch (RemoteException e) {
+					deliverError(Error.REMOTE_EXCEPTION);
+				}
+			}
+		});
 	}
 
 	public void setStaticResponse(StaticResponse response) {
 		mStaticResponse = response;
+	}
+
+	private void checkConnected() {
+		if (!mConnected) {
+			throw new IllegalStateException("Must call connect() before using");
+		}
 	}
 
 	private String getProductId(String id) {
