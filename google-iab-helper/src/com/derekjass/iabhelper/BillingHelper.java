@@ -376,7 +376,7 @@ public class BillingHelper {
 			deliverError(Error.fromResponseCode(responseCode));
 			return;
 		}
-		String purchase = data.getStringExtra("INNAPP_PURCHASE_DATA");
+		String purchase = data.getStringExtra("INAPP_PURCHASE_DATA");
 		String signature = data.getStringExtra("INAPP_DATA_SIGNATURE");
 		Purchase result = new Purchase(purchase, signature);
 		deliverProductPurchased(result);
