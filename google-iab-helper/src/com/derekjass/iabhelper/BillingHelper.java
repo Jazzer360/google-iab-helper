@@ -13,6 +13,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender.SendIntentException;
 import android.content.ServiceConnection;
+import android.content.pm.ResolveInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -338,8 +339,9 @@ public class BillingHelper {
 		Intent intent = new Intent(
 				"com.android.vending.billing.InAppBillingService.BIND");
 		intent.setPackage("com.android.vending");
-		mServiceAvailable = !mContext.getPackageManager()
-				.queryIntentServices(intent, 0).isEmpty();
+		List<ResolveInfo> services = mContext.getPackageManager()
+				.queryIntentServices(intent, 0);
+		mServiceAvailable = services != null && !services.isEmpty();
 		if (mServiceAvailable) {
 			mExecutor = Executors.newCachedThreadPool();
 			mBindLatch = new CountDownLatch(1);
