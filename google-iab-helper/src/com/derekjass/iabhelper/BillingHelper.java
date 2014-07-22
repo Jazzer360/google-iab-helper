@@ -115,6 +115,14 @@ public class BillingHelper {
 	}
 
 	private static final String RESPONSE_CODE = "RESPONSE_CODE";
+	private static final String ITEM_ID_LIST = "ITEM_ID_LIST";
+	private static final String DETAILS_LIST = "DETAILS_LIST";
+	private static final String INAPP_CONTINUATION_TOKEN = "INAPP_CONTINUATION_TOKEN";
+	private static final String INAPP_DATA_SIGNATURE_LIST = "INAPP_DATA_SIGNATURE_LIST";
+	private static final String INAPP_PURCHASE_DATA_LIST = "INAPP_PURCHASE_DATA_LIST";
+	private static final String BUY_INTENT = "BUY_INTENT";
+	private static final String INAPP_DATA_SIGNATURE = "INAPP_DATA_SIGNATURE";
+	private static final String INAPP_PURCHASE_DATA = "INAPP_PURCHASE_DATA";
 
 	private boolean mConnected;
 	private Context mContext;
@@ -195,7 +203,7 @@ public class BillingHelper {
 					}
 
 					Bundle skuBundle = new Bundle();
-					skuBundle.putStringArrayList("ITEM_ID_LIST", skus);
+					skuBundle.putStringArrayList(ITEM_ID_LIST, skus);
 
 					mBindLatch.await();
 					Bundle result = mService.getSkuDetails(3,
@@ -210,7 +218,7 @@ public class BillingHelper {
 					}
 
 					ArrayList<String> jsonArray = result
-							.getStringArrayList("DETAILS_LIST");
+							.getStringArrayList(DETAILS_LIST);
 					List<Product> products = new ArrayList<Product>();
 
 					for (String json : jsonArray) {
@@ -251,11 +259,11 @@ public class BillingHelper {
 						}
 
 						ArrayList<String> jsonArray = result
-								.getStringArrayList("INAPP_PURCHASE_DATA_LIST");
+								.getStringArrayList(INAPP_PURCHASE_DATA_LIST);
 						ArrayList<String> signatures = result
-								.getStringArrayList("INAPP_DATA_SIGNATURE_LIST");
+								.getStringArrayList(INAPP_DATA_SIGNATURE_LIST);
 						continuationToken = result
-								.getString("INAPP_CONTINUATION_TOKEN");
+								.getString(INAPP_CONTINUATION_TOKEN);
 
 						for (int i = 0; i < jsonArray.size(); i++) {
 							String json = jsonArray.get(i);
@@ -303,7 +311,7 @@ public class BillingHelper {
 						return;
 					}
 
-					PendingIntent intent = result.getParcelable("BUY_INTENT");
+					PendingIntent intent = result.getParcelable(BUY_INTENT);
 
 					activity.startIntentSenderForResult(
 							intent.getIntentSender(), requestCode,
@@ -331,8 +339,8 @@ public class BillingHelper {
 			deliverError(BillingError.fromResponseCode(responseCode), listener);
 			return;
 		}
-		String purchase = data.getStringExtra("INAPP_PURCHASE_DATA");
-		String signature = data.getStringExtra("INAPP_DATA_SIGNATURE");
+		String purchase = data.getStringExtra(INAPP_PURCHASE_DATA);
+		String signature = data.getStringExtra(INAPP_DATA_SIGNATURE);
 		Purchase result = new Purchase(purchase, signature);
 		deliverProductPurchased(result, listener);
 	}
