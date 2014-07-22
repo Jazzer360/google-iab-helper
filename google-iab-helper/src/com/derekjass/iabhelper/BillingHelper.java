@@ -228,7 +228,12 @@ public class BillingHelper {
 		 * Error associated with the intent that was given by the billing
 		 * service to purchase the product.
 		 */
-		SEND_INTENT_EXCEPTION;
+		SEND_INTENT_EXCEPTION,
+		/**
+		 * Error when device does not have the required service to implement
+		 * in-app billing.
+		 */
+		PLAY_SERVICES_UNAVAILABLE;
 
 		private static BillingError fromResponseCode(int code) {
 			switch (code) {
@@ -264,6 +269,7 @@ public class BillingHelper {
 	private static final String INAPP_PURCHASE_DATA = "INAPP_PURCHASE_DATA";
 
 	private boolean mConnected;
+	private boolean mServiceAvailable;
 	private Context mContext;
 	private ProductType mProductType;
 	private Handler mHandler;
@@ -276,6 +282,7 @@ public class BillingHelper {
 
 	private BillingHelper(Context context, ProductType productType) {
 		mConnected = false;
+		mServiceAvailable = true;
 		mContext = context.getApplicationContext();
 		mProductType = productType;
 		mHandler = new Handler(Looper.getMainLooper());
@@ -327,13 +334,19 @@ public class BillingHelper {
 	 * the onStart() method of an Activity.
 	 */
 	public void connect() {
-		mExecutor = Executors.newCachedThreadPool();
-		mBindLatch = new CountDownLatch(1);
-		mContext.bindService(new Intent(
-				"com.android.vending.billing.InAppBillingService.BIND"),
-				mConnection, Context.BIND_AUTO_CREATE);
-		mListeners = new SparseArray<OnProductPurchasedListener>();
-		mConnected = true;
+		if (mConnected) return;
+		Intent intent = new Intent(
+				"com.android.vending.billing.InAppBillingService.BIND");
+		intent.setPackage("com.android.vending");
+		mServiceAvailable = !mContext.getPackageManager()
+				.queryIntentServices(intent, 0).isEmpty();
+		if (mServiceAvailable) {
+			mExecutor = Executors.newCachedThreadPool();
+			mBindLatch = new CountDownLatch(1);
+			mContext.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
+			mListeners = new SparseArray<OnProductPurchasedListener>();
+			mConnected = true;
+		}
 	}
 
 	/**
@@ -342,6 +355,7 @@ public class BillingHelper {
 	 * the onStop() method of an Activity.
 	 */
 	public void disconnect() {
+		if (!mConnected) return;
 		mConnected = false;
 		mExecutor.shutdownNow();
 		mExecutor = null;
@@ -371,6 +385,10 @@ public class BillingHelper {
 		}
 		if (ids.size() > 20) {
 			throw new IllegalArgumentException("ids may exceed 20 ids");
+		}
+		if (!mServiceAvailable) {
+			deliverError(BillingError.PLAY_SERVICES_UNAVAILABLE, listener);
+			return;
 		}
 		checkConnected();
 		mExecutor.execute(new Runnable() {
@@ -426,6 +444,10 @@ public class BillingHelper {
 	 *            callback to deliver the results of the query
 	 */
 	public void queryPurchases(final OnPurchasesQueriedListener listener) {
+		if (!mServiceAvailable) {
+			deliverError(BillingError.PLAY_SERVICES_UNAVAILABLE, listener);
+			return;
+		}
 		checkConnected();
 		mExecutor.execute(new Runnable() {
 			@Override
@@ -524,6 +546,10 @@ public class BillingHelper {
 	public void purchaseProduct(final String productId, final String payload,
 			final Activity activity, final int requestCode,
 			final OnProductPurchasedListener listener) {
+		if (!mServiceAvailable) {
+			deliverError(BillingError.PLAY_SERVICES_UNAVAILABLE, listener);
+			return;
+		}
 		if (productId == null || activity == null) {
 			throw new IllegalArgumentException(
 					"productId and activity may not be null");
@@ -611,6 +637,10 @@ public class BillingHelper {
 	 */
 	public void consumePurchase(final Purchase purchase,
 			final OnPurchaseConsumedListener listener) {
+		if (!mServiceAvailable) {
+			deliverError(BillingError.PLAY_SERVICES_UNAVAILABLE, listener);
+			return;
+		}
 		if (mProductType == ProductType.SUBSCRIPTION) {
 			throw new UnsupportedOperationException(
 					"Cannot consume a subscription");
