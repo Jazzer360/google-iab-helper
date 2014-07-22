@@ -24,28 +24,89 @@ import com.android.vending.billing.IInAppBillingService;
 
 /**
  * A helper class to assist with using the Google Play in-app billing service.
+ * This handles all of the operations asynchronously where possible. All
+ * callbacks given to the various methods will all be run in the UI thread of
+ * the application.
+ * 
  * <h1>Setup</h1>
  * <p>
+ * Simply obtain an instance of the {@code BillingHelper} from one of the static
+ * factory methods depending on whether you want to handle managed products or
+ * subscriptions ({@link #newManagedProductHelper(Context)} or
+ * {@link #newSubscriptionHelper(Context)}).
+ * <p>
+ * Before making any calls, the instance must first connect to the Google Play
+ * billing service, which can be done by calling {@link #connect()}. When done
+ * with the service, a call should be made to {@link #disconnect()} to release
+ * any resources no longer needed. These calls are usually made in the
+ * onStart/onStop methods of an Activity.
+ * 
+ * @author Derek Jass
  */
 public class BillingHelper {
 
+	/**
+	 * Callback to deliver any errors that occur during the billing process.
+	 */
 	public interface OnErrorListener {
+		/**
+		 * Called when an error occured during the requested billing operation.
+		 * 
+		 * @param error
+		 *            error that occured
+		 */
 		public void onError(BillingError error);
 	}
 
+	/**
+	 * Callback to deliver the result of a product query.
+	 */
 	public interface OnProductsQueriedListener extends OnErrorListener {
+		/**
+		 * Called after a successful product query.
+		 * 
+		 * @param products
+		 *            the list of products queried
+		 */
 		public void onProductsQueried(List<Product> products);
 	}
 
+	/**
+	 * Callback to deliver the result of a purchase query.
+	 */
 	public interface OnPurchasesQueriedListener extends OnErrorListener {
+		/**
+		 * Called after a successful purchase query.
+		 * 
+		 * @param purchases
+		 *            a list of all purchases
+		 */
 		public void onPurchasesQueried(List<Purchase> purchases);
 	}
 
+	/**
+	 * Callback to deliver the result of a purchase.
+	 */
 	public interface OnProductPurchasedListener extends OnErrorListener {
+		/**
+		 * Called after a successful purchase.
+		 * 
+		 * @param purchase
+		 *            the result of the purchase
+		 */
 		public void onProductPurchased(Purchase purchase);
 	}
 
+	/**
+	 * Callback to deliver the result of a consumed purchase.
+	 */
 	public interface OnPurchaseConsumedListener extends OnErrorListener {
+		/**
+		 * Called after a successful purchase consumption request.
+		 * 
+		 * @param purchase
+		 *            the purchase that was consumed
+		 */
 		public void onPurchaseConsumed(Purchase purchase);
 	}
 
@@ -63,10 +124,41 @@ public class BillingHelper {
 		}
 	}
 
+	/**
+	 * Enumeration of all the pre-defined static test responses that may be used
+	 * to test an in-app billing app.
+	 */
 	public enum StaticResponse {
+		/**
+		 * Represents the test product id: {@code "android.test.purchased"}
+		 * <p>
+		 * When used, any request made to purchase a product will return as
+		 * though the purchase was successful.
+		 * <p>
+		 * <i>Note: After successfully purchasing, the item is considered as
+		 * 'owned' and may not again be purchased until it is consumed.</i>
+		 */
 		PURCHASED("android.test.purchased"),
+		/**
+		 * Represents the test product id: {@code "android.test.canceled"}
+		 * <p>
+		 * When used, any request made to purchase a product will return as
+		 * though the purchase was canceled.
+		 */
 		CANCELED("android.test.canceled"),
+		/**
+		 * Represents the test product id: {@code "android.test.refunded"}
+		 * <p>
+		 * When used, any request made to purchase a product will return as
+		 * though the purchase was refunded.
+		 */
 		REFUNDED("android.test.refunded"),
+		/**
+		 * Represents the test product id: {@code "android.test.unavailable"}
+		 * <p>
+		 * When used, any request made to purchase a product will return as
+		 * though the product is unavailable for purchase.
+		 */
 		UNAVAILABLE("android.test.unavailable");
 
 		private String mId;
@@ -75,26 +167,66 @@ public class BillingHelper {
 			mId = id;
 		}
 
-		private String id() {
+		/**
+		 * Returns the product ID associated with this enumeration.
+		 * 
+		 * @return product ID of this enumeration
+		 */
+		public String id() {
 			return mId;
 		}
 	}
 
+	/**
+	 * Enumeration of all the potential errors that may occur while using the
+	 */
 	public enum BillingError {
-		USER_CANCELLED,
+		/**
+		 * Error when a user pressed back or canceled a dialog.
+		 */
+		USER_CANCELED,
+		/**
+		 * Error when the billing API version is not supported by the currently
+		 * installed version of the Google Play services for the product type.
+		 */
 		BILLING_UNAVAILABLE,
+		/**
+		 * Error when the requested product is not available for purchase.
+		 */
 		ITEM_UNAVAILABLE,
+		/**
+		 * Error that indicates that either the application was not properly
+		 * signed or configured properly in the Play developer console, or if
+		 * the required permission is not declared in the manifest.
+		 */
 		DEVELOPER_ERROR,
+		/**
+		 * A fatal error occurred during the call to the billing service.
+		 */
 		ERROR,
+		/**
+		 * Error when trying to purchase an item that is already owned.
+		 */
 		ITEM_ALREADY_OWNED,
+		/**
+		 * Error when trying to consume an item that is not owned.
+		 */
 		ITEM_NOT_OWNED,
+		/**
+		 * Error when the connection to the Google Play billing service was
+		 * unexpectedly interrupted.
+		 */
 		REMOTE_EXCEPTION,
+		/**
+		 * Error associated with the intent that was given by the billing
+		 * service to purchase the product.
+		 */
 		SEND_INTENT_EXCEPTION;
 
 		private static BillingError fromResponseCode(int code) {
 			switch (code) {
 			case 1:
-				return USER_CANCELLED;
+				return USER_CANCELED;
 			case 3:
 				return BILLING_UNAVAILABLE;
 			case 4:
@@ -152,14 +284,41 @@ public class BillingHelper {
 		};
 	}
 
+	/**
+	 * Returns a new {@code BillingHelper} configured to handle requests for
+	 * in-app managed products. A context is required in order to successfully
+	 * bind to the billing service. It is also used to acquire the package name
+	 * which is required in all billing requests.
+	 * <p>
+	 * The context may not be {@code null}.
+	 * 
+	 * @param context
+	 *            application context
+	 * @return a BillingHelper configured to handle managed products
+	 */
 	public static BillingHelper newManagedProductHelper(Context context) {
 		return new BillingHelper(context, ProductType.MANAGED_PRODUCT);
 	}
 
+	/**
+	 * Returns a new {@code BillingHelper} configured to handle requests for
+	 * subscriptions. A context is required in order to succesfully bind to the
+	 * billing service. It is also used to acquire the package name which is
+	 * required in all billing requests.
+	 * 
+	 * @param context
+	 *            application context
+	 * @return a BillingHelper configured to handle subscriptions
+	 */
 	public static BillingHelper newSubscriptionHelper(Context context) {
 		return new BillingHelper(context, ProductType.SUBSCRIPTION);
 	}
 
+	/**
+	 * Initiates the connection to the Google Play billing service. Must be
+	 * called prior to making any billing requests. This is typically done in
+	 * the onStart() method of an Activity.
+	 */
 	public void connect() {
 		mExecutor = Executors.newCachedThreadPool();
 		mBindLatch = new CountDownLatch(1);
@@ -170,6 +329,11 @@ public class BillingHelper {
 		mConnected = true;
 	}
 
+	/**
+	 * Disconnects this helper from the Google Play billing service. Should be
+	 * called when the service is no longer needed. This is typically done in
+	 * the onStop() method of an Activity.
+	 */
 	public void disconnect() {
 		mConnected = false;
 		mExecutor.shutdownNow();
@@ -179,6 +343,17 @@ public class BillingHelper {
 		mListeners = null;
 	}
 
+	/**
+	 * Asynchronously queries the product IDs passed in the ids parameter. The
+	 * results of this call will be delivered to the implementation of
+	 * {@link OnProductsQueriedListener} in the main thread of the app.
+	 * 
+	 * @param ids
+	 *            list containing at least one, but no more than 20, product ids
+	 *            to get additional information about
+	 * @param listener
+	 *            callback to deliver the results of the query
+	 */
 	public void queryProducts(final List<String> ids,
 			final OnProductsQueriedListener listener) {
 		if (ids == null) {
@@ -235,6 +410,14 @@ public class BillingHelper {
 		});
 	}
 
+	/**
+	 * Asynchronously queries all completed purchases for the application. The
+	 * results of this call will be delivered to the implementation of the
+	 * {@link OnPurchasesQueriedListener} in the main thread of the app.
+	 * 
+	 * @param listener
+	 *            callback to deliver the results of the query
+	 */
 	public void queryPurchases(final OnPurchasesQueriedListener listener) {
 		checkConnected();
 		mExecutor.execute(new Runnable() {
@@ -284,6 +467,53 @@ public class BillingHelper {
 		});
 	}
 
+	/**
+	 * Starts the purchasing process for the given product ID. When properly
+	 * configured, the results of this call will be delivered to the
+	 * implementation of the {@link OnProductPurchasedListener} in the main
+	 * thread of the app. The {@code payload} is optional and may be used as a
+	 * security measure to ensure the response from the billing service is
+	 * valid.
+	 * <p>
+	 * Additional Requirements:
+	 * <p>
+	 * In order for the associated listener to receive the result of this call,
+	 * the Activity passed to this call must override the
+	 * {@code onActivityResult(int, int, Intent)} method and within it, include
+	 * a call to {@link #handleActivityResult(int, int, Intent)} with the
+	 * parameters as they are given in the {@code onActivityResult} method.
+	 * <p>
+	 * The {@code requestCode} parameter is the value that will be passed back
+	 * along with the result of the purchase. This code is used for the
+	 * following:
+	 * <ul>
+	 * <li>It's used to identify the listener you passed to this call. If you
+	 * are calling this method with different listeners, each listener must be
+	 * associated with a different {@code requestCode}.
+	 * <li>If your Activity implements
+	 * {@code onActivityResult(int, int, Intent)} for other purposes, this value
+	 * will be the {@code requestCode} passed to the {@code onActivityResult}
+	 * method. It may then be used to identify which requests were initiated by
+	 * this billing service, and therefore, which calls should be forward to
+	 * {@link #handleActivityResult(int, int, Intent)}.
+	 * </ul>
+	 * 
+	 * @param productId
+	 *            product ID to purchase
+	 * @param payload
+	 *            (optional) developer payload to be returned with the purchase.
+	 *            May be {@code null} if not used
+	 * @param activity
+	 *            activity that is used to start the purchase that should
+	 *            override it's {@code onActivityResult} method to forward to
+	 *            this service's {@link #handleActivityResult(int, int, Intent)}
+	 *            method
+	 * @param requestCode
+	 *            code that identifies both this request, and the listener
+	 *            passed
+	 * @param listener
+	 *            callback to deliver the results of the purchase
+	 */
 	public void purchaseProduct(final String productId, final String payload,
 			final Activity activity, final int requestCode,
 			final OnProductPurchasedListener listener) {
@@ -329,6 +559,19 @@ public class BillingHelper {
 
 	}
 
+	/**
+	 * Should only be called by an Activity's
+	 * {@code onActivityResult(int, int, Intent)} method to forward the results
+	 * to this helper. For notes on using, check the documentation on
+	 * {@link #purchaseProduct(String, String, Activity, int, OnProductPurchasedListener)}
+	 * 
+	 * @param requestCode
+	 *            the {@code requestCode} passed to {@code onActivityResult}
+	 * @param resultCode
+	 *            the {@code resultCode} passed to {@code onActivityResult}
+	 * @param data
+	 *            the {@code data} Intent passed to {@code onActivityResult}
+	 */
 	public void handleActivityResult(int requestCode, int resultCode,
 			Intent data) {
 		if (resultCode != Activity.RESULT_OK) return;
@@ -345,6 +588,20 @@ public class BillingHelper {
 		deliverProductPurchased(result, listener);
 	}
 
+	/**
+	 * Asynchronously consumes a purchased product. The result of this action
+	 * will be delivered to the implementation of the
+	 * {@link OnPurchaseConsumedListener} in the main thread of the app. The
+	 * purchase delivered to the listener will be the same one that was passed
+	 * to this method initially. If the consumption was not successful, no call
+	 * will be made to the
+	 * {@link OnPurchaseConsumedListener#onPurchaseConsumed(Purchase)} method.
+	 * 
+	 * @param purchase
+	 *            purchase to consume
+	 * @param listener
+	 *            callback to deliver the results of the consumption request
+	 */
 	public void consumePurchase(final Purchase purchase,
 			final OnPurchaseConsumedListener listener) {
 		if (mProductType == ProductType.SUBSCRIPTION) {
@@ -377,6 +634,16 @@ public class BillingHelper {
 		});
 	}
 
+	/**
+	 * Configures this helper to use the StaticResponse specified for all
+	 * requests made to
+	 * {@link #purchaseProduct(String, String, Activity, int, OnProductPurchasedListener)}
+	 * . To remove any prior configuration, simply call this method with
+	 * {@code null} as the parameter.
+	 * 
+	 * @param response
+	 *            StaticResponse to replace any purchase calls with
+	 */
 	public void setStaticResponse(StaticResponse response) {
 		mStaticResponse = response;
 	}
