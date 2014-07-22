@@ -356,6 +356,7 @@ public class BillingHelper {
 			@Override
 			public void run() {
 				try {
+					mBindLatch.await();
 					int resultCode = mService.consumePurchase(3,
 							mContext.getPackageName(),
 							purchase.getPurchaseToken());
@@ -369,6 +370,8 @@ public class BillingHelper {
 					deliverPurchaseConsumed(purchase, listener);
 				} catch (RemoteException e) {
 					deliverError(BillingError.REMOTE_EXCEPTION, listener);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
 				}
 			}
 		});
