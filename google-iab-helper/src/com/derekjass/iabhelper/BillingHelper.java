@@ -30,7 +30,14 @@ import com.android.vending.billing.IInAppBillingService;
  * 
  * <h1>Setup</h1>
  * <p>
- * Simply obtain an instance of the {@code BillingHelper} from one of the static
+ * Any application using the Google Play in-app billing will require that the
+ * following permission be declared in the manifest file.
+ * 
+ * <pre>
+ * &ltuses-permission android:name="com.android.vending.BILLING" /&gt
+ * </pre>
+ * <p>
+ * To obtain an instance of the {@code BillingHelper} from one of the static
  * factory methods depending on whether you want to handle managed products or
  * subscriptions ({@link #newManagedProductHelper(Context)} or
  * {@link #newSubscriptionHelper(Context)}).
