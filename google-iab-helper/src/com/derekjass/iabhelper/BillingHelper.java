@@ -18,6 +18,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
+import android.util.SparseArray;
 
 import com.android.vending.billing.IInAppBillingService;
 
@@ -25,76 +26,27 @@ import com.android.vending.billing.IInAppBillingService;
  * A helper class to assist with using the Google Play in-app billing service.
  * <h1>Setup</h1>
  * <p>
- * The helper uses a callback interface to deliver the results of the calls to
- * Google's in app billing service. So first, you need an implementation of the
- * {@link Callbacks} interface to handle any results of any of the in-app
- * billing queries. Errors are handled by a separate interface (
- * {@link ErrorHandler} ).
- * <p>
- * Next, you must obtain a new {@code BillingHelper} instance from one of the
- * two static factory methods. Which one you use depends on if you're handling
- * managed products, or subscriptions.
- * <ul>
- * <li>{@link #newManagedProductHelper(Context, Callbacks, ErrorHandler)}
- * <li>{@link #newSubscriptionHelper(Context, Callbacks, ErrorHandler)}
- * </ul>
- * 
- * <p>
- * Once you have an instance, you must call {@link #connect()} to set up the
- * connection to the in-app billing service. To avoid resource leaks, when not
- * using the class, {@link #disconnect()} should be called. This should
- * typically be done within the onStart/onStop lifecycle methods of an activity.
- * <p>
- * In order for the callback interface to receive the call to
- * {@link Callbacks#onProductPurchased(Purchase)}, the activity used to call
- * {@link #purchaseProduct(String, Activity, int)} must override it's
- * onActivityResult(int, int, Intent) method to include a call to
- * {@link #handleActivityResult(int, int, Intent)}.
- * <h1>Querying Products</h1>
- * <p>
- * Querying the details of the available in-app products goes like this:
- * 
- * <pre>
- * List&lt;String&gt; skus = new ArrayList&lt;String&gt;();
- * skus.add(&quot;product_1&quot;);
- * skus.add(&quot;product_2&quot;);
- * mBillingHelper.queryProducts(skus);
- * </pre>
- * 
- * Once the Google play service responds, the results are handed back to the
- * callback interface that was provided when getting an instance of the
- * {@code BillingHelper}. The call is made on the main thread of the app.
- * <h1>Querying Purchases</h1>
- * <p>
- * Querying all of the user's purchases of in-app products is simple:
- * 
- * <pre>
- * mBillingHelper.queryPurchases();
- * </pre>
- * 
- * The results are delivered asynchronously to the callback interface.
- * <h1>Purchasing</h1>
- * 
  */
 public class BillingHelper {
 
-	/**
-	 * Callback to deliver results of the calls made to the billing service.
-	 * <p>
-	 * These calls are run on the main UI thread.
-	 */
-	public interface Callbacks {
-		public void onProductsQueried(List<Product> products);
-
-		public void onPurchasesQueried(List<Purchase> purchases);
-
-		public void onProductPurchased(Purchase purchase);
-
-		public void onPurchaseConsumed(Purchase purchase);
+	public interface OnErrorListener {
+		public void onError(BillingError error);
 	}
 
-	public interface ErrorHandler {
-		public void onError(Error error);
+	public interface OnProductsQueriedListener extends OnErrorListener {
+		public void onProductsQueried(List<Product> products);
+	}
+
+	public interface OnPurchasesQueriedListener extends OnErrorListener {
+		public void onPurchasesQueried(List<Purchase> purchases);
+	}
+
+	public interface OnProductPurchasedListener extends OnErrorListener {
+		public void onProductPurchased(Purchase purchase);
+	}
+
+	public interface OnPurchaseConsumedListener extends OnErrorListener {
+		public void onPurchaseConsumed(Purchase purchase);
 	}
 
 	private enum ProductType {
@@ -128,7 +80,7 @@ public class BillingHelper {
 		}
 	}
 
-	public enum Error {
+	public enum BillingError {
 		USER_CANCELLED,
 		BILLING_UNAVAILABLE,
 		ITEM_UNAVAILABLE,
@@ -139,7 +91,7 @@ public class BillingHelper {
 		REMOTE_EXCEPTION,
 		SEND_INTENT_EXCEPTION;
 
-		private static Error fromResponseCode(int code) {
+		private static BillingError fromResponseCode(int code) {
 			switch (code) {
 			case 1:
 				return USER_CANCELLED;
@@ -166,8 +118,6 @@ public class BillingHelper {
 
 	private boolean mConnected;
 	private Context mContext;
-	private Callbacks mCallbacks;
-	private ErrorHandler mErrorHandler;
 	private ProductType mProductType;
 	private Handler mHandler;
 	private ServiceConnection mConnection;
@@ -175,13 +125,11 @@ public class BillingHelper {
 	private CountDownLatch mBindLatch;
 	private ExecutorService mExecutor;
 	private StaticResponse mStaticResponse;
+	private SparseArray<OnProductPurchasedListener> mListeners;
 
-	private BillingHelper(Context context, Callbacks callbacks,
-			ErrorHandler errorHandler, ProductType productType) {
+	private BillingHelper(Context context, ProductType productType) {
 		mConnected = false;
 		mContext = context.getApplicationContext();
-		mCallbacks = callbacks;
-		mErrorHandler = errorHandler;
 		mProductType = productType;
 		mHandler = new Handler(Looper.getMainLooper());
 		mConnection = new ServiceConnection() {
@@ -196,16 +144,12 @@ public class BillingHelper {
 		};
 	}
 
-	public static BillingHelper newManagedProductHelper(Context context,
-			Callbacks callbacks, ErrorHandler errorHandler) {
-		return new BillingHelper(context, callbacks, errorHandler,
-				ProductType.MANAGED_PRODUCT);
+	public static BillingHelper newManagedProductHelper(Context context) {
+		return new BillingHelper(context, ProductType.MANAGED_PRODUCT);
 	}
 
-	public static BillingHelper newSubscriptionHelper(Context context,
-			Callbacks callbacks, ErrorHandler errorHandler) {
-		return new BillingHelper(context, callbacks, errorHandler,
-				ProductType.SUBSCRIPTION);
+	public static BillingHelper newSubscriptionHelper(Context context) {
+		return new BillingHelper(context, ProductType.SUBSCRIPTION);
 	}
 
 	public void connect() {
@@ -214,6 +158,7 @@ public class BillingHelper {
 		mContext.bindService(new Intent(
 				"com.android.vending.billing.InAppBillingService.BIND"),
 				mConnection, Context.BIND_AUTO_CREATE);
+		mListeners = new SparseArray<OnProductPurchasedListener>();
 		mConnected = true;
 	}
 
@@ -223,9 +168,11 @@ public class BillingHelper {
 		mExecutor = null;
 		mContext.unbindService(mConnection);
 		mService = null;
+		mListeners = null;
 	}
 
-	public void queryProducts(final List<String> ids) {
+	public void queryProducts(final List<String> ids,
+			final OnProductsQueriedListener listener) {
 		if (ids == null) {
 			throw new IllegalArgumentException("ids may not be null");
 		}
@@ -257,7 +204,8 @@ public class BillingHelper {
 
 					int resultCode = result.getInt(RESPONSE_CODE);
 					if (resultCode != 0) {
-						deliverError(Error.fromResponseCode(resultCode));
+						deliverError(BillingError.fromResponseCode(resultCode),
+								listener);
 						return;
 					}
 
@@ -269,9 +217,9 @@ public class BillingHelper {
 						products.add(new Product(json));
 					}
 
-					deliverProductsQueried(products);
+					deliverProductsQueried(products, listener);
 				} catch (RemoteException e) {
-					deliverError(Error.REMOTE_EXCEPTION);
+					deliverError(BillingError.REMOTE_EXCEPTION, listener);
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 				}
@@ -279,7 +227,7 @@ public class BillingHelper {
 		});
 	}
 
-	public void queryPurchases() {
+	public void queryPurchases(final OnPurchasesQueriedListener listener) {
 		checkConnected();
 		mExecutor.execute(new Runnable() {
 			@Override
@@ -296,7 +244,9 @@ public class BillingHelper {
 
 						int resultCode = result.getInt(RESPONSE_CODE);
 						if (resultCode != 0) {
-							deliverError(Error.fromResponseCode(resultCode));
+							deliverError(
+									BillingError.fromResponseCode(resultCode),
+									listener);
 							return;
 						}
 
@@ -315,9 +265,9 @@ public class BillingHelper {
 						}
 					} while (continuationToken != null);
 
-					deliverPurchasesQueried(purchases);
+					deliverPurchasesQueried(purchases, listener);
 				} catch (RemoteException e) {
-					deliverError(Error.REMOTE_EXCEPTION);
+					deliverError(BillingError.REMOTE_EXCEPTION, listener);
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 					return;
@@ -327,7 +277,8 @@ public class BillingHelper {
 	}
 
 	public void purchaseProduct(final String productId, final String payload,
-			final Activity activity, final int requestCode) {
+			final Activity activity, final int requestCode,
+			final OnProductPurchasedListener listener) {
 		if (productId == null || activity == null) {
 			throw new IllegalArgumentException(
 					"productId and activity may not be null");
@@ -337,6 +288,7 @@ public class BillingHelper {
 			@Override
 			public void run() {
 				try {
+					mListeners.put(requestCode, listener);
 					String sku = getProductId(productId);
 
 					mBindLatch.await();
@@ -346,7 +298,8 @@ public class BillingHelper {
 
 					int resultCode = result.getInt(RESPONSE_CODE);
 					if (resultCode != 0) {
-						deliverError(Error.fromResponseCode(resultCode));
+						deliverError(BillingError.fromResponseCode(resultCode),
+								listener);
 						return;
 					}
 
@@ -357,11 +310,11 @@ public class BillingHelper {
 							new Intent(), 0, 0, 0);
 
 				} catch (RemoteException e) {
-					deliverError(Error.REMOTE_EXCEPTION);
+					deliverError(BillingError.REMOTE_EXCEPTION, listener);
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 				} catch (SendIntentException e) {
-					deliverError(Error.SEND_INTENT_EXCEPTION);
+					deliverError(BillingError.SEND_INTENT_EXCEPTION, listener);
 				}
 			}
 		});
@@ -371,18 +324,21 @@ public class BillingHelper {
 	public void handleActivityResult(int requestCode, int resultCode,
 			Intent data) {
 		if (resultCode != Activity.RESULT_OK) return;
+		OnProductPurchasedListener listener = mListeners.get(requestCode);
+		if (listener == null) return;
 		int responseCode = data.getIntExtra(RESPONSE_CODE, 6);
 		if (responseCode != 0) {
-			deliverError(Error.fromResponseCode(responseCode));
+			deliverError(BillingError.fromResponseCode(responseCode), listener);
 			return;
 		}
 		String purchase = data.getStringExtra("INAPP_PURCHASE_DATA");
 		String signature = data.getStringExtra("INAPP_DATA_SIGNATURE");
 		Purchase result = new Purchase(purchase, signature);
-		deliverProductPurchased(result);
+		deliverProductPurchased(result, listener);
 	}
 
-	public void consumePurchase(final Purchase purchase) {
+	public void consumePurchase(final Purchase purchase,
+			final OnPurchaseConsumedListener listener) {
 		if (mProductType == ProductType.SUBSCRIPTION) {
 			throw new UnsupportedOperationException(
 					"Cannot consume a subscription");
@@ -397,13 +353,14 @@ public class BillingHelper {
 							purchase.getPurchaseToken());
 
 					if (resultCode != 0) {
-						deliverError(Error.fromResponseCode(resultCode));
+						deliverError(BillingError.fromResponseCode(resultCode),
+								listener);
 						return;
 					}
 
-					deliverPurchaseConsumed(purchase);
+					deliverPurchaseConsumed(purchase, listener);
 				} catch (RemoteException e) {
-					deliverError(Error.REMOTE_EXCEPTION);
+					deliverError(BillingError.REMOTE_EXCEPTION, listener);
 				}
 			}
 		});
@@ -423,52 +380,57 @@ public class BillingHelper {
 		return mStaticResponse != null ? mStaticResponse.id() : id;
 	}
 
-	private void deliverError(final Error error) {
-		if (mErrorHandler == null) return;
+	private void deliverError(final BillingError error,
+			final OnErrorListener listener) {
+		if (listener == null) return;
 		mHandler.post(new Runnable() {
 			@Override
 			public void run() {
-				mErrorHandler.onError(error);
+				listener.onError(error);
 			}
 		});
 	}
 
-	private void deliverProductsQueried(final List<Product> products) {
-		if (mCallbacks == null) return;
+	private void deliverProductsQueried(final List<Product> products,
+			final OnProductsQueriedListener listener) {
+		if (listener == null) return;
 		mHandler.post(new Runnable() {
 			@Override
 			public void run() {
-				mCallbacks.onProductsQueried(products);
+				listener.onProductsQueried(products);
 			}
 		});
 	}
 
-	private void deliverPurchasesQueried(final List<Purchase> purchases) {
-		if (mCallbacks == null) return;
+	private void deliverPurchasesQueried(final List<Purchase> purchases,
+			final OnPurchasesQueriedListener listener) {
+		if (listener == null) return;
 		mHandler.post(new Runnable() {
 			@Override
 			public void run() {
-				mCallbacks.onPurchasesQueried(purchases);
+				listener.onPurchasesQueried(purchases);
 			}
 		});
 	}
 
-	private void deliverProductPurchased(final Purchase purchase) {
-		if (mCallbacks == null) return;
+	private void deliverProductPurchased(final Purchase purchase,
+			final OnProductPurchasedListener listener) {
+		if (listener == null) return;
 		mHandler.post(new Runnable() {
 			@Override
 			public void run() {
-				mCallbacks.onProductPurchased(purchase);
+				listener.onProductPurchased(purchase);
 			}
 		});
 	}
 
-	private void deliverPurchaseConsumed(final Purchase purchase) {
-		if (mCallbacks == null) return;
+	private void deliverPurchaseConsumed(final Purchase purchase,
+			final OnPurchaseConsumedListener listener) {
+		if (listener == null) return;
 		mHandler.post(new Runnable() {
 			@Override
 			public void run() {
-				mCallbacks.onPurchaseConsumed(purchase);
+				listener.onPurchaseConsumed(purchase);
 			}
 		});
 	}
