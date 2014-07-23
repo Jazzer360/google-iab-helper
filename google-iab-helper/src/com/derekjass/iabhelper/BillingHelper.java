@@ -118,20 +118,6 @@ public class BillingHelper {
 		public void onPurchaseConsumed(Purchase purchase);
 	}
 
-	private enum ProductType {
-		MANAGED_PRODUCT("inapp"), SUBSCRIPTION("subs");
-
-		private String mToken;
-
-		private ProductType(String token) {
-			mToken = token;
-		}
-
-		private String token() {
-			return mToken;
-		}
-	}
-
 	/**
 	 * Enumeration of all the pre-defined static test responses that may be used
 	 * to test an in-app billing app.
@@ -271,8 +257,8 @@ public class BillingHelper {
 
 	private boolean mConnected;
 	private boolean mServiceAvailable;
+	private String mProductType;
 	private Context mContext;
-	private ProductType mProductType;
 	private Handler mHandler;
 	private ServiceConnection mConnection;
 	private IInAppBillingService mService;
@@ -281,7 +267,7 @@ public class BillingHelper {
 	private StaticResponse mStaticResponse;
 	private SparseArray<OnProductPurchasedListener> mListeners;
 
-	private BillingHelper(Context context, ProductType productType) {
+	private BillingHelper(Context context, String productType) {
 		mConnected = false;
 		mServiceAvailable = true;
 		mContext = context.getApplicationContext();
@@ -312,7 +298,7 @@ public class BillingHelper {
 	 * @return a BillingHelper configured to handle managed products
 	 */
 	public static BillingHelper newManagedProductHelper(Context context) {
-		return new BillingHelper(context, ProductType.MANAGED_PRODUCT);
+		return new BillingHelper(context, "inapp");
 	}
 
 	/**
@@ -326,7 +312,7 @@ public class BillingHelper {
 	 * @return a BillingHelper configured to handle subscriptions
 	 */
 	public static BillingHelper newSubscriptionHelper(Context context) {
-		return new BillingHelper(context, ProductType.SUBSCRIPTION);
+		return new BillingHelper(context, "subs");
 	}
 
 	/**
@@ -411,8 +397,7 @@ public class BillingHelper {
 
 					mBindLatch.await();
 					Bundle result = mService.getSkuDetails(3,
-							mContext.getPackageName(), mProductType.token(),
-							skuBundle);
+							mContext.getPackageName(), mProductType, skuBundle);
 
 					int resultCode = result.getInt(RESPONSE_CODE);
 					if (resultCode != 0) {
@@ -463,8 +448,8 @@ public class BillingHelper {
 					mBindLatch.await();
 					do {
 						Bundle result = mService.getPurchases(3,
-								mContext.getPackageName(),
-								mProductType.token(), continuationToken);
+								mContext.getPackageName(), mProductType,
+								continuationToken);
 
 						int resultCode = result.getInt(RESPONSE_CODE);
 						if (resultCode != 0) {
@@ -568,8 +553,8 @@ public class BillingHelper {
 
 					mBindLatch.await();
 					Bundle result = mService.getBuyIntent(3,
-							mContext.getPackageName(), sku,
-							mProductType.token(), payload);
+							mContext.getPackageName(), sku, mProductType,
+							payload);
 
 					int resultCode = result.getInt(RESPONSE_CODE);
 					if (resultCode != 0) {
@@ -641,7 +626,7 @@ public class BillingHelper {
 	 */
 	public void consumePurchase(final Purchase purchase,
 			final OnPurchaseConsumedListener listener) {
-		if (mProductType == ProductType.SUBSCRIPTION) {
+		if (mProductType.equals("subs")) {
 			throw new UnsupportedOperationException(
 					"Cannot consume a subscription");
 		}
