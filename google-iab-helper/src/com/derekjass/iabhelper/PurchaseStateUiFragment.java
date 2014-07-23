@@ -11,8 +11,8 @@ import android.view.ViewGroup;
 public abstract class PurchaseStateUiFragment extends PurchaseStateFragment {
 
 	@Override
-	public final View onCreateView(LayoutInflater inflater,
-			ViewGroup container, Bundle savedInstanceState) {
+	public View onCreateView(LayoutInflater inflater, ViewGroup container,
+			Bundle savedInstanceState) {
 		View view = inflater.inflate(R.layout.fragment_container, container,
 				false);
 		return view;
@@ -22,12 +22,16 @@ public abstract class PurchaseStateUiFragment extends PurchaseStateFragment {
 	protected void onPurchaseStateChanged(PurchaseState purchaseState) {
 		Fragment fragment = getFragmentForState(purchaseState);
 		if (fragment != null) {
-			FragmentManager fm = getChildFragmentManager();
-			FragmentTransaction ft = fm.beginTransaction();
-			ft.replace(R.layout.fragment_container, fragment);
-			ft.commit();
+			showFragment(fragment);
 		}
 	}
 
 	protected abstract Fragment getFragmentForState(PurchaseState state);
+
+	protected void showFragment(Fragment fragment) {
+		FragmentManager fm = getChildFragmentManager();
+		FragmentTransaction ft = fm.beginTransaction();
+		ft.replace(R.id.container, fragment);
+		ft.commitAllowingStateLoss();
+	}
 }

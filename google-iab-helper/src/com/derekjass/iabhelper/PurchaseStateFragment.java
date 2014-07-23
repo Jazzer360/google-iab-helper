@@ -2,36 +2,18 @@ package com.derekjass.iabhelper;
 
 import java.util.List;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.res.TypedArray;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
+import android.util.AttributeSet;
 
 import com.derekjass.iabhelper.BillingHelper.BillingError;
 import com.derekjass.iabhelper.BillingHelper.OnProductPurchasedListener;
 import com.derekjass.iabhelper.BillingHelper.OnPurchaseConsumedListener;
 import com.derekjass.iabhelper.BillingHelper.OnPurchasesQueriedListener;
 
-/**
- * TODO
- * 
- * - Allow subclass to choose what fragment classes get swapped at each state
- * change.
- * 
- * - onPurchase
- * 
- * Users may attach subclasses of this fragment to an activity, and upon
- * attaching, the fragment connects to the play billing service to check the
- * purchase status of the product ID associated with the fragment.
- * 
- * Needs to be fragments associated with views, and fragments not associated
- * with views.
- * 
- * After the fragment is connected, it should check the purchase status of the
- * product, and allow subclasses a chance to specify the behavior
- * 
- * @author Derek
- *
- */
 public abstract class PurchaseStateFragment extends Fragment {
 
 	public enum ProductType {
@@ -52,23 +34,48 @@ public abstract class PurchaseStateFragment extends Fragment {
 	private Purchase mPurchase;
 
 	@Override
-	public void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		Bundle args = getArguments();
-		if (args == null) {
-			throw new IllegalArgumentException();// TODO
-		}
-		mProductId = args.getString(EXTRA_PRODUCT_ID);
-		mProductType = (ProductType) args.getSerializable(EXTRA_PRODUCT_TYPE);
+	public void onInflate(Activity activity, AttributeSet attrs,
+			Bundle savedInstanceState) {
+		super.onInflate(activity, attrs, savedInstanceState);
 
-		if (mProductId == null || mProductType == null) {
-			throw new IllegalArgumentException();// TODO
+		TypedArray a = activity.obtainStyledAttributes(attrs,
+				R.styleable.PurchaseStateFragment);
+
+		String id = a.getString(R.styleable.PurchaseStateFragment_product_id);
+		int val = a.getInt(R.styleable.PurchaseStateFragment_product_type, -1);
+
+		if (id != null) {
+			mProductId = id;
 		}
+		switch (val) {
+		case 0:
+			mProductType = ProductType.MANAGED_PRODUCT;
+			break;
+		case 1:
+			mProductType = ProductType.SUBSCRIPTION;
+			break;
+		}
+
+		a.recycle();
 	}
 
 	@Override
-	public void onActivityCreated(Bundle savedInstanceState) {
-		super.onActivityCreated(savedInstanceState);
+	public void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+
+		Bundle args = getArguments();
+		if (args != null) {
+			mProductId = args.getString(EXTRA_PRODUCT_ID);
+			mProductType = (ProductType) args
+					.getSerializable(EXTRA_PRODUCT_TYPE);
+		}
+
+		if (mProductId == null || mProductType == null) {
+			throw new IllegalStateException(
+					"Subclasses of PurchaseStateFragment require arguments"
+							+ " for product ID and product type");
+		}
+
 		switch (mProductType) {
 		case MANAGED_PRODUCT:
 			mBillingHelper = BillingHelper
@@ -83,8 +90,12 @@ public abstract class PurchaseStateFragment extends Fragment {
 	@Override
 	public void onStart() {
 		super.onStart();
-		setPurchaseState(PurchaseState.UNKNOWN);
 		mBillingHelper.connect();
+	}
+
+	@Override
+	public void onResume() {
+		super.onResume();
 		refreshPurchaseState();
 	}
 
@@ -94,6 +105,10 @@ public abstract class PurchaseStateFragment extends Fragment {
 		mBillingHelper.disconnect();
 	}
 
+	public Purchase getPurchase() {
+		return mPurchase;
+	}
+	
 	public PurchaseState getPurchaseState() {
 		return mPurchaseState;
 	}
@@ -105,12 +120,15 @@ public abstract class PurchaseStateFragment extends Fragment {
 		}
 	}
 
+	protected abstract void onBillingError(BillingError error);
+
 	protected abstract void onPurchaseStateChanged(PurchaseState purchaseState);
 
 	public void refreshPurchaseState() {
 		mBillingHelper.queryPurchases(new OnPurchasesQueriedListener() {
 			@Override
 			public void onError(BillingError error) {
+				onBillingError(error);
 				setPurchaseState(PurchaseState.UNKNOWN);
 			}
 
@@ -121,21 +139,23 @@ public abstract class PurchaseStateFragment extends Fragment {
 					if (purchase.getProductId().equals(mProductId)) {
 						purchased = purchase.isPurchased();
 						mPurchase = purchased ? purchase : null;
-						setPurchaseState(purchased ? PurchaseState.PURCHASED
-								: PurchaseState.NOT_PURCHASED);
 						break;
 					}
 				}
+				setPurchaseState(purchased ? PurchaseState.PURCHASED
+						: PurchaseState.NOT_PURCHASED);
 			}
 		});
 	}
 
 	public void purchaseProduct() {
 		if (mPurchaseState != PurchaseState.NOT_PURCHASED) return;
-		mBillingHelper.purchaseProduct(mProductId, null, getActivity(), 0,
+		mBillingHelper.purchaseProduct(mProductId, null, getActivity(), 1,
 				new OnProductPurchasedListener() {
 					@Override
-					public void onError(BillingError error) {}
+					public void onError(BillingError error) {
+						onBillingError(error);
+					}
 
 					@Override
 					public void onProductPurchased(Purchase purchase) {
@@ -149,8 +169,8 @@ public abstract class PurchaseStateFragment extends Fragment {
 
 	@Override
 	public void onActivityResult(int requestCode, int resultCode, Intent data) {
-		super.onActivityResult(requestCode, resultCode, data);
 		mBillingHelper.handleActivityResult(requestCode, resultCode, data);
+		super.onActivityResult(requestCode, resultCode, data);
 	}
 
 	public void consumeProduct() {
@@ -158,7 +178,9 @@ public abstract class PurchaseStateFragment extends Fragment {
 		mBillingHelper.consumePurchase(mPurchase,
 				new OnPurchaseConsumedListener() {
 					@Override
-					public void onError(BillingError error) {}
+					public void onError(BillingError error) {
+						onBillingError(error);
+					}
 
 					@Override
 					public void onPurchaseConsumed(Purchase purchase) {
@@ -166,5 +188,12 @@ public abstract class PurchaseStateFragment extends Fragment {
 						setPurchaseState(PurchaseState.NOT_PURCHASED);
 					}
 				});
+	}
+
+	protected static Bundle getArgsBundle(String productId, ProductType type) {
+		Bundle args = new Bundle(2);
+		args.putString(EXTRA_PRODUCT_ID, productId);
+		args.putSerializable(EXTRA_PRODUCT_TYPE, type);
+		return args;
 	}
 }

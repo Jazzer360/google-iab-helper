@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+	<declare-styleable name="PurchaseStateFragment">
+		<attr name="product_id" format="string" />
+		<attr name="product_type" format="enum">
+			<enum name="managed_product" value="0" />
+			<enum name="subscription" value="1" />
+		</attr>
+	</declare-styleable>
+
+</resources>
