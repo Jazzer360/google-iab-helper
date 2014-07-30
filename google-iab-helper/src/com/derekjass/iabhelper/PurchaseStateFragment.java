@@ -21,7 +21,7 @@ public abstract class PurchaseStateFragment extends Fragment {
 	}
 
 	public enum PurchaseState {
-		PURCHASED, NOT_PURCHASED, UNKNOWN;
+		DEFAULT, PURCHASED, NOT_PURCHASED, UNKNOWN;
 	}
 
 	protected static final String EXTRA_PRODUCT_ID = "PRODUCT_ID";
@@ -40,23 +40,25 @@ public abstract class PurchaseStateFragment extends Fragment {
 
 		TypedArray a = activity.obtainStyledAttributes(attrs,
 				R.styleable.PurchaseStateFragment);
+		try {
+			String id = a
+					.getString(R.styleable.PurchaseStateFragment_product_id);
+			int val = a.getInt(R.styleable.PurchaseStateFragment_product_type,
+					-1);
 
-		String id = a.getString(R.styleable.PurchaseStateFragment_product_id);
-		int val = a.getInt(R.styleable.PurchaseStateFragment_product_type, -1);
+			if (id != null) mProductId = id;
 
-		if (id != null) {
-			mProductId = id;
+			switch (val) {
+			case 0:
+				mProductType = ProductType.MANAGED_PRODUCT;
+				break;
+			case 1:
+				mProductType = ProductType.SUBSCRIPTION;
+				break;
+			}
+		} finally {
+			a.recycle();
 		}
-		switch (val) {
-		case 0:
-			mProductType = ProductType.MANAGED_PRODUCT;
-			break;
-		case 1:
-			mProductType = ProductType.SUBSCRIPTION;
-			break;
-		}
-
-		a.recycle();
 	}
 
 	@Override
@@ -96,6 +98,9 @@ public abstract class PurchaseStateFragment extends Fragment {
 	@Override
 	public void onResume() {
 		super.onResume();
+		if (mPurchaseState == null) {
+			setPurchaseState(PurchaseState.DEFAULT);
+		}
 		refreshPurchaseState();
 	}
 
@@ -108,7 +113,7 @@ public abstract class PurchaseStateFragment extends Fragment {
 	public Purchase getPurchase() {
 		return mPurchase;
 	}
-	
+
 	public PurchaseState getPurchaseState() {
 		return mPurchaseState;
 	}
@@ -148,10 +153,10 @@ public abstract class PurchaseStateFragment extends Fragment {
 		});
 	}
 
-	public void purchaseProduct() {
+	public void purchaseProduct(int requestCode) {
 		if (mPurchaseState != PurchaseState.NOT_PURCHASED) return;
-		mBillingHelper.purchaseProduct(mProductId, null, getActivity(), 1,
-				new OnProductPurchasedListener() {
+		mBillingHelper.purchaseProduct(mProductId, null, getActivity(),
+				requestCode, new OnProductPurchasedListener() {
 					@Override
 					public void onError(BillingError error) {
 						onBillingError(error);
@@ -188,6 +193,10 @@ public abstract class PurchaseStateFragment extends Fragment {
 						setPurchaseState(PurchaseState.NOT_PURCHASED);
 					}
 				});
+	}
+
+	public void setSignatureValidator(SignatureValidator validator) {
+		mBillingHelper.setSignatureValidator(validator);
 	}
 
 	protected static Bundle getArgsBundle(String productId, ProductType type) {

@@ -10,6 +10,23 @@ import android.view.ViewGroup;
 
 public abstract class PurchaseStateUiFragment extends PurchaseStateFragment {
 
+	private boolean mResumed = false;
+
+	@Override
+	public void onResume() {
+		super.onResume();
+		mResumed = true;
+		PurchaseState state = getPurchaseState();
+		Fragment f = getFragmentForState(state);
+		showFragment(f);
+	}
+
+	@Override
+	public void onPause() {
+		super.onPause();
+		mResumed = false;
+	}
+
 	@Override
 	public View onCreateView(LayoutInflater inflater, ViewGroup container,
 			Bundle savedInstanceState) {
@@ -20,8 +37,8 @@ public abstract class PurchaseStateUiFragment extends PurchaseStateFragment {
 
 	@Override
 	protected void onPurchaseStateChanged(PurchaseState purchaseState) {
-		Fragment fragment = getFragmentForState(purchaseState);
-		if (fragment != null) {
+		if (mResumed) {
+			Fragment fragment = getFragmentForState(purchaseState);
 			showFragment(fragment);
 		}
 	}
@@ -29,9 +46,10 @@ public abstract class PurchaseStateUiFragment extends PurchaseStateFragment {
 	protected abstract Fragment getFragmentForState(PurchaseState state);
 
 	protected void showFragment(Fragment fragment) {
+		if (fragment == null) return;
 		FragmentManager fm = getChildFragmentManager();
 		FragmentTransaction ft = fm.beginTransaction();
 		ft.replace(R.id.container, fragment);
-		ft.commitAllowingStateLoss();
+		ft.commit();
 	}
 }

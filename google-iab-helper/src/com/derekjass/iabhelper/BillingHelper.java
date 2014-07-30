@@ -119,59 +119,6 @@ public class BillingHelper {
 	}
 
 	/**
-	 * Enumeration of all the pre-defined static test responses that may be used
-	 * to test an in-app billing app.
-	 */
-	public enum StaticResponse {
-		/**
-		 * Represents the test product id: {@code "android.test.purchased"}
-		 * <p>
-		 * When used, any request made to purchase a product will return as
-		 * though the purchase was successful.
-		 * <p>
-		 * <i>Note: After successfully purchasing, the item is considered as
-		 * 'owned' and may not again be purchased until it is consumed.</i>
-		 */
-		PURCHASED("android.test.purchased"),
-		/**
-		 * Represents the test product id: {@code "android.test.canceled"}
-		 * <p>
-		 * When used, any request made to purchase a product will return as
-		 * though the purchase was canceled.
-		 */
-		CANCELED("android.test.canceled"),
-		/**
-		 * Represents the test product id: {@code "android.test.refunded"}
-		 * <p>
-		 * When used, any request made to purchase a product will return as
-		 * though the purchase was refunded.
-		 */
-		REFUNDED("android.test.refunded"),
-		/**
-		 * Represents the test product id: {@code "android.test.unavailable"}
-		 * <p>
-		 * When used, any request made to purchase a product will return as
-		 * though the product is unavailable for purchase.
-		 */
-		UNAVAILABLE("android.test.unavailable");
-
-		private String mId;
-
-		private StaticResponse(String id) {
-			mId = id;
-		}
-
-		/**
-		 * Returns the product ID associated with this enumeration.
-		 * 
-		 * @return product ID of this enumeration
-		 */
-		public String id() {
-			return mId;
-		}
-	}
-
-	/**
 	 * Enumeration of all the potential errors that may occur while using the
 	 */
 	public enum BillingError {
@@ -220,7 +167,11 @@ public class BillingHelper {
 		 * Error when device does not have the required service to implement
 		 * in-app billing.
 		 */
-		PLAY_SERVICES_UNAVAILABLE;
+		PLAY_SERVICES_UNAVAILABLE,
+		/**
+		 * Error when the signature fails a validation check.
+		 */
+		INVALID_SIGNATURE;
 
 		private static BillingError fromResponseCode(int code) {
 			switch (code) {
@@ -264,8 +215,8 @@ public class BillingHelper {
 	private IInAppBillingService mService;
 	private CountDownLatch mBindLatch;
 	private ExecutorService mExecutor;
-	private StaticResponse mStaticResponse;
 	private SparseArray<OnProductPurchasedListener> mListeners;
+	private SignatureValidator mValidator;
 
 	private BillingHelper(Context context, String productType) {
 		mConnected = false;
@@ -273,6 +224,7 @@ public class BillingHelper {
 		mContext = context.getApplicationContext();
 		mProductType = productType;
 		mHandler = new Handler(Looper.getMainLooper());
+		mListeners = new SparseArray<OnProductPurchasedListener>();
 		mConnection = new ServiceConnection() {
 			@Override
 			public void onServiceDisconnected(ComponentName name) {}
@@ -332,7 +284,6 @@ public class BillingHelper {
 			mExecutor = Executors.newCachedThreadPool();
 			mBindLatch = new CountDownLatch(1);
 			mContext.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
-			mListeners = new SparseArray<OnProductPurchasedListener>();
 		}
 		mConnected = true;
 	}
@@ -350,7 +301,6 @@ public class BillingHelper {
 			mExecutor = null;
 			mContext.unbindService(mConnection);
 			mService = null;
-			mListeners = null;
 		}
 	}
 
@@ -427,7 +377,9 @@ public class BillingHelper {
 	/**
 	 * Asynchronously queries all completed purchases for the application. The
 	 * results of this call will be delivered to the implementation of the
-	 * {@link OnPurchasesQueriedListener} in the main thread of the app.
+	 * {@link OnPurchasesQueriedListener} in the main thread of the app. If an
+	 * error occurs during the process, it will be sent to the error handling
+	 * callback, and you won't get any purchase data returned.
 	 * 
 	 * @param listener
 	 *            callback to deliver the results of the query
@@ -469,8 +421,20 @@ public class BillingHelper {
 						for (int i = 0; i < jsonArray.size(); i++) {
 							String json = jsonArray.get(i);
 							String signature = signatures.get(i);
-							Purchase purchase = new Purchase(json, signature);
-							purchases.add(purchase);
+							boolean valid = true;
+							if (mValidator != null) {
+								valid = mValidator.validateSignature(json,
+										signature);
+							}
+							if (valid) {
+								Purchase purchase = new Purchase(json,
+										signature);
+								purchases.add(purchase);
+							} else {
+								deliverError(BillingError.INVALID_SIGNATURE,
+										listener);
+								return;
+							}
 						}
 					} while (continuationToken != null);
 
@@ -549,11 +513,10 @@ public class BillingHelper {
 			public void run() {
 				try {
 					mListeners.put(requestCode, listener);
-					String sku = getProductId(productId);
 
 					mBindLatch.await();
 					Bundle result = mService.getBuyIntent(3,
-							mContext.getPackageName(), sku, mProductType,
+							mContext.getPackageName(), productId, mProductType,
 							payload);
 
 					int resultCode = result.getInt(RESPONSE_CODE);
@@ -596,7 +559,8 @@ public class BillingHelper {
 	 */
 	public void handleActivityResult(int requestCode, int resultCode,
 			Intent data) {
-		if (resultCode != Activity.RESULT_OK || mListeners == null) return;
+		//TODO Validation
+		if (resultCode != Activity.RESULT_OK) return;
 		OnProductPurchasedListener listener = mListeners.get(requestCode);
 		if (listener == null) return;
 		int responseCode = data.getIntExtra(RESPONSE_CODE, 6);
@@ -660,28 +624,14 @@ public class BillingHelper {
 		});
 	}
 
-	/**
-	 * Configures this helper to use the StaticResponse specified for all
-	 * requests made to
-	 * {@link #purchaseProduct(String, String, Activity, int, OnProductPurchasedListener)}
-	 * . To remove any prior configuration, simply call this method with
-	 * {@code null} as the parameter.
-	 * 
-	 * @param response
-	 *            StaticResponse to replace any purchase calls with
-	 */
-	public void setStaticResponse(StaticResponse response) {
-		mStaticResponse = response;
+	public void setSignatureValidator(SignatureValidator validator) {
+		mValidator = validator;
 	}
 
 	private void checkConnected() {
 		if (!mConnected) {
 			throw new IllegalStateException("Must call connect() before using");
 		}
-	}
-
-	private String getProductId(String id) {
-		return mStaticResponse != null ? mStaticResponse.id() : id;
 	}
 
 	private void deliverError(final BillingError error,
