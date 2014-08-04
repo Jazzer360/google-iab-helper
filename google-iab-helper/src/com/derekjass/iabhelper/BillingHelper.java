@@ -617,6 +617,18 @@ public class BillingHelper {
 		});
 	}
 
+	/**
+	 * Sets the BillingHelper to use the specified SignatureValidator to handle
+	 * any signature validation. If set to {@code null}, no validation will
+	 * occur.
+	 * <p>
+	 * Whenever validation fails, a {@link BillingError#INVALID_SIGNATURE} error
+	 * will be sent to the listeners to notify that the signature failed
+	 * validation.
+	 * 
+	 * @param validator
+	 *            SignatureValidator used to validate signatures
+	 */
 	public void setSignatureValidator(SignatureValidator validator) {
 		mValidator = validator;
 	}
