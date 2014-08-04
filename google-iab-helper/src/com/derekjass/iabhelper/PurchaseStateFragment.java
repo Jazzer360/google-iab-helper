@@ -175,7 +175,8 @@ public abstract class PurchaseStateFragment extends Fragment {
 
 					@Override
 					public void onProductPurchased(Purchase purchase) {
-						if (purchase.isPurchased()) {
+						if (purchase.getProductId().equals(mProductId)
+								&& purchase.isPurchased()) {
 							mPurchase = purchase;
 							setPurchaseState(PurchaseState.PURCHASED);
 						}
