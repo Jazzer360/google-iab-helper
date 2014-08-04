@@ -19,7 +19,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
-import android.util.SparseArray;
 
 import com.android.vending.billing.IInAppBillingService;
 
@@ -215,7 +214,6 @@ public class BillingHelper {
 	private IInAppBillingService mService;
 	private CountDownLatch mBindLatch;
 	private ExecutorService mExecutor;
-	private SparseArray<OnProductPurchasedListener> mListeners;
 	private SignatureValidator mValidator;
 
 	private BillingHelper(Context context, String productType) {
@@ -224,7 +222,6 @@ public class BillingHelper {
 		mContext = context.getApplicationContext();
 		mProductType = productType;
 		mHandler = new Handler(Looper.getMainLooper());
-		mListeners = new SparseArray<OnProductPurchasedListener>();
 		mConnection = new ServiceConnection() {
 			@Override
 			public void onServiceDisconnected(ComponentName name) {}
@@ -450,55 +447,37 @@ public class BillingHelper {
 	}
 
 	/**
-	 * Starts the purchasing process for the given product ID. When properly
-	 * configured, the results of this call will be delivered to the
-	 * implementation of the {@link OnProductPurchasedListener} in the main
-	 * thread of the app. The {@code payload} is optional and may be used as a
-	 * security measure to ensure the response from the billing service is
-	 * valid.
+	 * Starts the purchasing process for the given product ID. The product ID
+	 * must be specified, as well as an activity used to launch the purchasing
+	 * activity. A request code must also be specified, which is used by the
+	 * Android system to identify the result of the activity.
 	 * <p>
-	 * Additional Requirements:
+	 * Optionally, an error listener may be specified to catch any errors that
+	 * occur during this process. A payload string may also be specified which
+	 * will be returned with the purchase data.
 	 * <p>
-	 * In order for the associated listener to receive the result of this call,
-	 * the Activity passed to this call must override the
-	 * {@code onActivityResult(int, int, Intent)} method and within it, include
-	 * a call to {@link #handleActivityResult(int, int, Intent)} with the
-	 * parameters as they are given in the {@code onActivityResult} method.
-	 * <p>
-	 * The {@code requestCode} parameter is the value that will be passed back
-	 * along with the result of the purchase. This code is used for the
-	 * following:
-	 * <ul>
-	 * <li>It's used to identify the listener you passed to this call. If you
-	 * are calling this method with different listeners, each listener must be
-	 * associated with a different {@code requestCode}.
-	 * <li>If your Activity implements
-	 * {@code onActivityResult(int, int, Intent)} for other purposes, this value
-	 * will be the {@code requestCode} passed to the {@code onActivityResult}
-	 * method. It may then be used to identify which requests were initiated by
-	 * this billing service, and therefore, which calls should be forward to
-	 * {@link #handleActivityResult(int, int, Intent)}.
-	 * </ul>
+	 * The result of the purchase will be delivered to the activity's
+	 * onActivityResult method. To handle the result, you must first check the
+	 * code of the request made to ensure it was a request made to this
+	 * BillingHelper. You then simply pass the intent to the
+	 * {@link #handleActivityResult(Intent, OnProductPurchasedListener)} method
+	 * with a listener that will receive the resulting purchase info.
 	 * 
 	 * @param productId
-	 *            product ID to purchase
+	 *            product ID of the product to be purchased
 	 * @param payload
-	 *            (optional) developer payload to be returned with the purchase.
-	 *            May be {@code null} if not used
+	 *            (optional) developer payload to associate with purchase
 	 * @param activity
-	 *            activity that is used to start the purchase that should
-	 *            override it's {@code onActivityResult} method to forward to
-	 *            this service's {@link #handleActivityResult(int, int, Intent)}
-	 *            method
+	 *            activity used to start purchase activity
 	 * @param requestCode
-	 *            code that identifies both this request, and the listener
-	 *            passed
+	 *            request code to associate with the purchase
 	 * @param listener
-	 *            callback to deliver the results of the purchase
+	 *            (optional) error listener to catch any errors while starting
+	 *            the purchase
 	 */
 	public void purchaseProduct(final String productId, final String payload,
 			final Activity activity, final int requestCode,
-			final OnProductPurchasedListener listener) {
+			final OnErrorListener listener) {
 		if (productId == null || activity == null) {
 			throw new IllegalArgumentException(
 					"productId and activity may not be null");
@@ -512,8 +491,6 @@ public class BillingHelper {
 			@Override
 			public void run() {
 				try {
-					mListeners.put(requestCode, listener);
-
 					mBindLatch.await();
 					Bundle result = mService.getBuyIntent(3,
 							mContext.getPackageName(), productId, mProductType,
@@ -545,33 +522,49 @@ public class BillingHelper {
 	}
 
 	/**
-	 * Should only be called by an Activity's
-	 * {@code onActivityResult(int, int, Intent)} method to forward the results
-	 * to this helper. For notes on using, check the documentation on
-	 * {@link #purchaseProduct(String, String, Activity, int, OnProductPurchasedListener)}
+	 * Takes an Intent that was passed to an activity's onActivityResult method
+	 * and parses the content, either delivering the resulting Purchase to the
+	 * listener parameter, or if an error occurs, an error to the same listener.
+	 * <p>
+	 * A check should be made before handing off the intent for processing to
+	 * ensure that the activity result completed with the
+	 * {@code Activity.RESULT_OK} result code. While not checking won't break
+	 * anything, it will cause errors to be sent to this method's listener when
+	 * the purchase was not completed.
+	 * <p>
+	 * This uses a background thread to do any validation in the event that a
+	 * SignatureValidator is being used with this BillingHelper.
 	 * 
-	 * @param requestCode
-	 *            the {@code requestCode} passed to {@code onActivityResult}
-	 * @param resultCode
-	 *            the {@code resultCode} passed to {@code onActivityResult}
 	 * @param data
-	 *            the {@code data} Intent passed to {@code onActivityResult}
+	 *            intent to retrieve purchase data from
+	 * @param listener
+	 *            listener to handle result of the intent
 	 */
-	public void handleActivityResult(int requestCode, int resultCode,
-			Intent data) {
-		//TODO Validation
-		if (resultCode != Activity.RESULT_OK) return;
-		OnProductPurchasedListener listener = mListeners.get(requestCode);
-		if (listener == null) return;
-		int responseCode = data.getIntExtra(RESPONSE_CODE, 6);
-		if (responseCode != 0) {
-			deliverError(BillingError.fromResponseCode(responseCode), listener);
-			return;
-		}
-		String purchase = data.getStringExtra(INAPP_PURCHASE_DATA);
-		String signature = data.getStringExtra(INAPP_DATA_SIGNATURE);
-		Purchase result = new Purchase(purchase, signature);
-		deliverProductPurchased(result, listener);
+	public void handleActivityResult(final Intent data,
+			final OnProductPurchasedListener listener) {
+		new Thread() {
+			@Override
+			public void run() {
+				int responseCode = data.getIntExtra(RESPONSE_CODE, 6);
+				if (responseCode != 0) {
+					deliverError(BillingError.fromResponseCode(responseCode),
+							listener);
+					return;
+				}
+				String json = data.getStringExtra(INAPP_PURCHASE_DATA);
+				String signature = data.getStringExtra(INAPP_DATA_SIGNATURE);
+				boolean valid = true;
+				if (mValidator != null) {
+					valid = mValidator.validateSignature(json, signature);
+				}
+				if (valid) {
+					Purchase purchase = new Purchase(json, signature);
+					deliverProductPurchased(purchase, listener);
+				} else {
+					deliverError(BillingError.INVALID_SIGNATURE, listener);
+				}
+			}
+		}.start();
 	}
 
 	/**

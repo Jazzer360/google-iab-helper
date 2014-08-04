@@ -10,6 +10,7 @@ import android.support.v4.app.Fragment;
 import android.util.AttributeSet;
 
 import com.derekjass.iabhelper.BillingHelper.BillingError;
+import com.derekjass.iabhelper.BillingHelper.OnErrorListener;
 import com.derekjass.iabhelper.BillingHelper.OnProductPurchasedListener;
 import com.derekjass.iabhelper.BillingHelper.OnPurchaseConsumedListener;
 import com.derekjass.iabhelper.BillingHelper.OnPurchasesQueriedListener;
@@ -156,7 +157,17 @@ public abstract class PurchaseStateFragment extends Fragment {
 	public void purchaseProduct(int requestCode) {
 		if (mPurchaseState != PurchaseState.NOT_PURCHASED) return;
 		mBillingHelper.purchaseProduct(mProductId, null, getActivity(),
-				requestCode, new OnProductPurchasedListener() {
+				requestCode, new OnErrorListener() {
+					@Override
+					public void onError(BillingError error) {
+						onBillingError(error);
+					}
+				});
+	}
+
+	public void handleActivityResult(Intent data) {
+		mBillingHelper.handleActivityResult(data,
+				new OnProductPurchasedListener() {
 					@Override
 					public void onError(BillingError error) {
 						onBillingError(error);
@@ -170,12 +181,6 @@ public abstract class PurchaseStateFragment extends Fragment {
 						}
 					}
 				});
-	}
-
-	@Override
-	public void onActivityResult(int requestCode, int resultCode, Intent data) {
-		mBillingHelper.handleActivityResult(requestCode, resultCode, data);
-		super.onActivityResult(requestCode, resultCode, data);
 	}
 
 	public void consumeProduct() {
