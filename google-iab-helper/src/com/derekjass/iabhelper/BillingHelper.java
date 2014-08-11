@@ -518,7 +518,6 @@ public class BillingHelper {
 				}
 			}
 		});
-
 	}
 
 	/**
@@ -542,7 +541,7 @@ public class BillingHelper {
 	 */
 	public void handleActivityResult(final Intent data,
 			final OnProductPurchasedListener listener) {
-		new Thread() {
+		new Thread(new Runnable() {
 			@Override
 			public void run() {
 				int responseCode = data.getIntExtra(RESPONSE_CODE, 6);
@@ -564,7 +563,7 @@ public class BillingHelper {
 					deliverError(BillingError.INVALID_SIGNATURE, listener);
 				}
 			}
-		}.start();
+		}).start();
 	}
 
 	/**
