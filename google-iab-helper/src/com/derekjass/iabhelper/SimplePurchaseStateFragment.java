@@ -62,7 +62,8 @@ public class SimplePurchaseStateFragment extends PurchaseStateFragment {
 	 *            type of product (managed or subscription)
 	 * @return PurchaseStateFragment for the specified product ID and type
 	 */
-	public PurchaseStateFragment newInstance(String productId, ProductType type) {
+	public static PurchaseStateFragment newInstance(String productId,
+			ProductType type) {
 		PurchaseStateFragment f = new SimplePurchaseStateFragment();
 		f.setArguments(getArgsBundle(productId, type));
 		return f;
