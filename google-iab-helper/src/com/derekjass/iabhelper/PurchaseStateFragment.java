@@ -15,17 +15,67 @@ import com.derekjass.iabhelper.BillingHelper.OnProductPurchasedListener;
 import com.derekjass.iabhelper.BillingHelper.OnPurchaseConsumedListener;
 import com.derekjass.iabhelper.BillingHelper.OnPurchasesQueriedListener;
 
+/**
+ * This is a base class for any fragments that monitor purchase state for
+ * Google's in-app billing. This class handles all of the IPC with Google's
+ * in-app billing service.
+ * <p>
+ * Purchase state is managed automatically, and changes to it are passed to the
+ * {@link #onPurchaseStateChanged(PurchaseState)} abstract method.
+ * <p>
+ * Subclasses of this class must set this fragment's arguments to a bundle that
+ * may be created with {@link #getArgsBundle(String, ProductType)}.
+ * Alternatively, you may specify these arguments via xml when using an xml
+ * layout to place the fragment.
+ */
 public abstract class PurchaseStateFragment extends Fragment {
 
+	/**
+	 * Enumeration of the two product types supported by Google's in-app
+	 * billing.
+	 */
 	public enum ProductType {
-		MANAGED_PRODUCT, SUBSCRIPTION;
+		/**
+		 * Managed product.
+		 */
+		MANAGED_PRODUCT,
+		/**
+		 * Subscription.
+		 */
+		SUBSCRIPTION;
 	}
 
+	/**
+	 * Enumeration of all possible purchase states of an in-app product.
+	 */
 	public enum PurchaseState {
-		DEFAULT, PURCHASED, NOT_PURCHASED, UNKNOWN;
+		/**
+		 * Default purchase state. This is what the state is set to initially
+		 * before any communication with the billing service.
+		 */
+		DEFAULT,
+		/**
+		 * Product is verified as purchased.
+		 */
+		PURCHASED,
+		/**
+		 * Product is verified as not purchased.
+		 */
+		NOT_PURCHASED,
+		/**
+		 * Purchase state is unknown. Usually indicates a problem contacting the
+		 * billing service.
+		 */
+		UNKNOWN;
 	}
 
+	/**
+	 * The key to access the product ID string included in the arguments bundle.
+	 */
 	protected static final String EXTRA_PRODUCT_ID = "PRODUCT_ID";
+	/**
+	 * The key to access the ProductType enum included in the arguments bundle.
+	 */
 	protected static final String EXTRA_PRODUCT_TYPE = "PRODUCT_TYPE";
 
 	private BillingHelper mBillingHelper;
@@ -111,10 +161,31 @@ public abstract class PurchaseStateFragment extends Fragment {
 		mBillingHelper.disconnect();
 	}
 
+	/**
+	 * Returns the product ID associated with this fragment.
+	 * 
+	 * @return product ID of the in-app product
+	 */
+	public String getProductId() {
+		return mProductId;
+	}
+
+	/**
+	 * Returns the purchase information associated with the product ID this
+	 * fragment is handling. Returns null if the product is not purchased.
+	 * 
+	 * @return Purchase object that contains all relevant purchase info for the
+	 *         product, or null if the product is not purchased
+	 */
 	public Purchase getPurchase() {
 		return mPurchase;
 	}
 
+	/**
+	 * Returns the known state of the product associated with this fragment.
+	 * 
+	 * @return purchase state of the product
+	 */
 	public PurchaseState getPurchaseState() {
 		return mPurchaseState;
 	}
@@ -126,10 +197,30 @@ public abstract class PurchaseStateFragment extends Fragment {
 		}
 	}
 
+	/**
+	 * Called when there was an error while interacting with the in-app billing
+	 * service.
+	 * 
+	 * @param error
+	 *            the error that occurred
+	 */
 	protected abstract void onBillingError(BillingError error);
 
+	/**
+	 * Called when the purchase state of the product associated with this
+	 * fragment has changed.
+	 * 
+	 * @param purchaseState
+	 *            the new purchase state of the product
+	 */
 	protected abstract void onPurchaseStateChanged(PurchaseState purchaseState);
 
+	/**
+	 * Requests a refresh of the purchase state. If the state has changed from
+	 * it's last known state, a call to the
+	 * {@link #onPurchaseStateChanged(PurchaseState)} will occur with the new
+	 * state passed as it's parameter.
+	 */
 	public void refreshPurchaseState() {
 		mBillingHelper.queryPurchases(new OnPurchasesQueriedListener() {
 			@Override
@@ -154,6 +245,15 @@ public abstract class PurchaseStateFragment extends Fragment {
 		});
 	}
 
+	/**
+	 * Triggers the purchasing process for the associated product. The
+	 * requestCode parameter is used to identify this request's matching result
+	 * that is handed back to this fragment's parent activity's
+	 * onActivityResult(...) method.
+	 * 
+	 * @param requestCode
+	 *            the request code used to launch the purchase
+	 */
 	public void purchaseProduct(int requestCode) {
 		if (mPurchaseState != PurchaseState.NOT_PURCHASED) return;
 		mBillingHelper.purchaseProduct(mProductId, null, getActivity(),
@@ -165,6 +265,15 @@ public abstract class PurchaseStateFragment extends Fragment {
 				});
 	}
 
+	/**
+	 * Should be called by the activity when it receives the result from the
+	 * onActivityResult(...) method. Users should verify that the requestCode
+	 * for the result matches the requestCode used when calling the
+	 * {@link #purchaseProduct(int)} method.
+	 * 
+	 * @param data
+	 *            the intent delivered to the activity with the result data
+	 */
 	public void handleActivityResult(Intent data) {
 		mBillingHelper.handleActivityResult(data,
 				new OnProductPurchasedListener() {
@@ -184,6 +293,9 @@ public abstract class PurchaseStateFragment extends Fragment {
 				});
 	}
 
+	/**
+	 * Consumes the in-app product, and updates the purchase state.
+	 */
 	public void consumeProduct() {
 		if (mPurchaseState != PurchaseState.PURCHASED) return;
 		mBillingHelper.consumePurchase(mPurchase,
@@ -201,10 +313,27 @@ public abstract class PurchaseStateFragment extends Fragment {
 				});
 	}
 
+	/**
+	 * Sets a PurchaseValidator to be used to validate any signatures that the
+	 * billing service gives back. The use of a validator is optional, and may
+	 * be set to null.
+	 * 
+	 * @param validator
+	 *            signature validator used to validate signatures
+	 */
 	public void setSignatureValidator(SignatureValidator validator) {
 		mBillingHelper.setSignatureValidator(validator);
 	}
 
+	/**
+	 * Creates a new Bundle to hold the required arguments for the fragment.
+	 * 
+	 * @param productId
+	 *            product ID of the in-app product to monitor
+	 * @param type
+	 *            the product type
+	 * @return bundle containing the parameters mapped to the proper keys
+	 */
 	protected static Bundle getArgsBundle(String productId, ProductType type) {
 		Bundle args = new Bundle(2);
 		args.putString(EXTRA_PRODUCT_ID, productId);
