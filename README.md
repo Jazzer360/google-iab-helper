@@ -10,7 +10,7 @@ There are a few `PurchaseStateFragment` classes that allow for simple handling o
 Once you have an instance of one of these fragments, there are methods common to them all to initiate various purchase-related requests.
 - `getPurchaseState()` - This returns the current purchase state of the product.
 - `purchaseProduct(int)` - This starts the purchase process for the user. The `int` passed to this method is used to identify the request made so the result the activity recieves can be matched to the request made. (More on this later)
-- `consumeProduct()` - This consumes the product.
+- `consumePurchase(PurchaseConsumedListener)` - This consumes the product and notifies the associated listener when the consumption was successful.
 
 All of these fragments have a few requirements for them to work properly.
 
@@ -31,7 +31,44 @@ Fragment f = SimplePurchaseStateFragment.newInstance(productId, productType);
 In addition, your `Activity` the fragment is being attached to must implement `SimplePurchaseStateFragment.PurchaseStateListener`. This is the callback that will be called whenever a change in purchase state occurs. You should handle any changes related to a change in purchase state within this callback.
 
 ### PurchaseStateUiFragment
-Coming Soon
+This is a fragment that displays a fragment based on the current purchase state, and automatically changes the fragment as the purchase state changes.
+
+This class has two abstract methods that must be implemented when subclassing.
+- `getFragmentForState(PurchaseState)` - This is called when the purchase state has changed and must return a `Fragment` based on the PurchaseState passed.
+- `onBillingError(BillingError)` - This is called when an error occured during a billing operation.
+
+A simple implementation may look like this:
+```java
+public class MyFragment extends PurchaseStateUiFragment {
+
+	@Override
+	protected Fragment getFragmentForState(PurchaseState state) {
+		switch (state) {
+		case NOT_PURCHASED:
+			return new NotPurchasedFragment();
+			break;
+		case PURCHASED:
+			return new PurchasedFragment();
+			break;
+		}
+	}
+	
+	@Override
+	protected void onBillingError(BillingError error) {
+		Log.w("MyFragment", error.toString());
+	}
+}
+```
+
+Recommendation: When subclassing, it's a good idea to provide a static `newInstance()` method that sets the arguments of the fragment and returns the newly created fragment with the arguments set. Adding to the above example:
+```java
+public static MyFragment newInstance() {
+	MyFragment f = new MyFragment();
+	Bundle args = getArgsBundle("your_product_id", MANAGED_PRODUCT);
+	f.setArgs(args);
+	return f;
+}
+```
 ### PurchaseStateFragment
 Coming Soon
 
