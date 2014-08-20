@@ -31,6 +31,19 @@ import com.derekjass.iabhelper.BillingHelper.OnPurchasesQueriedListener;
 public abstract class PurchaseStateFragment extends Fragment {
 
 	/**
+	 * Callback to notify that a purchase has successfully been consumed.
+	 */
+	public interface PurchaseConsumedListener {
+		/**
+		 * Method called when purchase was successfully consumed.
+		 * 
+		 * @param purchase
+		 *            the purchase that was consumed
+		 */
+		public void onPurchaseConsumed(Purchase purchase);
+	}
+
+	/**
 	 * Enumeration of all possible purchase states of an in-app product.
 	 */
 	public enum PurchaseState {
@@ -288,8 +301,11 @@ public abstract class PurchaseStateFragment extends Fragment {
 
 	/**
 	 * Consumes the in-app product, and updates the purchase state.
+	 * 
+	 * @param listener
+	 *            the callback to notify when consumption was successful
 	 */
-	public void consumeProduct() {
+	public void consumePurchase(final PurchaseConsumedListener listener) {
 		if (mPurchaseState != PurchaseState.PURCHASED) return;
 		mBillingHelper.consumePurchase(mPurchase,
 				new OnPurchaseConsumedListener() {
@@ -300,6 +316,9 @@ public abstract class PurchaseStateFragment extends Fragment {
 
 					@Override
 					public void onPurchaseConsumed(Purchase purchase) {
+						if (listener != null) {
+							listener.onPurchaseConsumed(purchase);
+						}
 						mPurchase = null;
 						setPurchaseState(PurchaseState.NOT_PURCHASED);
 					}
