@@ -10,7 +10,7 @@ import com.derekjass.iabhelper.BillingHelper.BillingError;
  * activity that this fragment is attached to.
  * <p>
  * To use this class, you must instantiate the fragment with the
- * {@link #newInstance(String, ProductType)} method, and your activity must
+ * {@link #newInstance(String, String)} method, and your activity must
  * implement {@link PurchaseStateListener} to handle any change in purchase
  * state.
  */
@@ -59,11 +59,13 @@ public class SimplePurchaseStateFragment extends PurchaseStateFragment {
 	 * @param productId
 	 *            product ID of the product
 	 * @param type
-	 *            type of product (managed or subscription)
+	 *            type of product (either
+	 *            {@link PurchaseStateFragment#MANAGED_PRODUCT} or
+	 *            {@link PurchaseStateFragment#SUBSCRIPTION})
 	 * @return PurchaseStateFragment for the specified product ID and type
 	 */
 	public static PurchaseStateFragment newInstance(String productId,
-			ProductType type) {
+			String type) {
 		PurchaseStateFragment f = new SimplePurchaseStateFragment();
 		f.setArguments(getArgsBundle(productId, type));
 		return f;

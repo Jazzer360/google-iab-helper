@@ -24,26 +24,11 @@ import com.derekjass.iabhelper.BillingHelper.OnPurchasesQueriedListener;
  * {@link #onPurchaseStateChanged(PurchaseState)} abstract method.
  * <p>
  * Subclasses of this class must set this fragment's arguments to a bundle that
- * may be created with {@link #getArgsBundle(String, ProductType)}.
- * Alternatively, you may specify these arguments via xml when using an xml
- * layout to place the fragment.
+ * may be created with {@link #getArgsBundle(String, String)}. Alternatively,
+ * you may specify these arguments via xml when using an xml layout to place the
+ * fragment.
  */
 public abstract class PurchaseStateFragment extends Fragment {
-
-	/**
-	 * Enumeration of the two product types supported by Google's in-app
-	 * billing.
-	 */
-	public enum ProductType {
-		/**
-		 * Managed product.
-		 */
-		MANAGED_PRODUCT,
-		/**
-		 * Subscription.
-		 */
-		SUBSCRIPTION;
-	}
 
 	/**
 	 * Enumeration of all possible purchase states of an in-app product.
@@ -70,16 +55,25 @@ public abstract class PurchaseStateFragment extends Fragment {
 	}
 
 	/**
+	 * Product type for managed products.
+	 */
+	public static final String MANAGED_PRODUCT = "inapp";
+	/**
+	 * Product type for subscriptions.
+	 */
+	public static final String SUBSCRIPTION = "subs";
+	/**
 	 * The key to access the product ID string included in the arguments bundle.
 	 */
 	protected static final String EXTRA_PRODUCT_ID = "PRODUCT_ID";
 	/**
-	 * The key to access the ProductType enum included in the arguments bundle.
+	 * The key to access the product type String included in the arguments
+	 * bundle.
 	 */
 	protected static final String EXTRA_PRODUCT_TYPE = "PRODUCT_TYPE";
 
 	private BillingHelper mBillingHelper;
-	private ProductType mProductType;
+	private String mProductType;
 	private String mProductId;
 	private PurchaseState mPurchaseState;
 	private Purchase mPurchase;
@@ -101,10 +95,10 @@ public abstract class PurchaseStateFragment extends Fragment {
 
 			switch (val) {
 			case 0:
-				mProductType = ProductType.MANAGED_PRODUCT;
+				mProductType = MANAGED_PRODUCT;
 				break;
 			case 1:
-				mProductType = ProductType.SUBSCRIPTION;
+				mProductType = SUBSCRIPTION;
 				break;
 			}
 		} finally {
@@ -119,8 +113,7 @@ public abstract class PurchaseStateFragment extends Fragment {
 		Bundle args = getArguments();
 		if (args != null) {
 			mProductId = args.getString(EXTRA_PRODUCT_ID);
-			mProductType = (ProductType) args
-					.getSerializable(EXTRA_PRODUCT_TYPE);
+			mProductType = args.getString(EXTRA_PRODUCT_TYPE);
 		}
 
 		if (mProductId == null || mProductType == null) {
@@ -129,14 +122,14 @@ public abstract class PurchaseStateFragment extends Fragment {
 							+ " for product ID and product type");
 		}
 
-		switch (mProductType) {
-		case MANAGED_PRODUCT:
+		if (mProductType.equals(MANAGED_PRODUCT)) {
 			mBillingHelper = BillingHelper
 					.newManagedProductHelper(getActivity());
-			break;
-		case SUBSCRIPTION:
+		} else if (mProductType.equals(SUBSCRIPTION)) {
 			mBillingHelper = BillingHelper.newSubscriptionHelper(getActivity());
-			break;
+		} else {
+			throw new IllegalStateException(
+					"Invalid product type argument for PurchaseStateFragment");
 		}
 	}
 
@@ -331,13 +324,14 @@ public abstract class PurchaseStateFragment extends Fragment {
 	 * @param productId
 	 *            product ID of the in-app product to monitor
 	 * @param type
-	 *            the product type
+	 *            the product type (either {@link #MANAGED_PRODUCT} or
+	 *            {@link #SUBSCRIPTION})
 	 * @return bundle containing the parameters mapped to the proper keys
 	 */
-	protected static Bundle getArgsBundle(String productId, ProductType type) {
+	protected static Bundle getArgsBundle(String productId, String type) {
 		Bundle args = new Bundle(2);
 		args.putString(EXTRA_PRODUCT_ID, productId);
-		args.putSerializable(EXTRA_PRODUCT_TYPE, type);
+		args.putString(EXTRA_PRODUCT_TYPE, type);
 		return args;
 	}
 }
