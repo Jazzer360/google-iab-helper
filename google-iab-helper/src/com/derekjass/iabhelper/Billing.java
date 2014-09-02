@@ -1,5 +1,10 @@
 package com.derekjass.iabhelper;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -12,10 +17,21 @@ import android.os.IBinder;
 import android.os.RemoteException;
 
 import com.android.vending.billing.IInAppBillingService;
+import com.derekjass.iabhelper.BillingHelper.BillingError;
 
 public class Billing {
 
-	public static class BillingConnection implements IInAppBillingService {
+	public static class BillingConnection {
+
+		private static final String RESPONSE_CODE = "RESPONSE_CODE";
+		private static final String ITEM_ID_LIST = "ITEM_ID_LIST";
+		private static final String DETAILS_LIST = "DETAILS_LIST";
+		private static final String INAPP_CONTINUATION_TOKEN = "INAPP_CONTINUATION_TOKEN";
+		private static final String INAPP_DATA_SIGNATURE_LIST = "INAPP_DATA_SIGNATURE_LIST";
+		private static final String INAPP_PURCHASE_DATA_LIST = "INAPP_PURCHASE_DATA_LIST";
+		private static final String BUY_INTENT = "BUY_INTENT";
+		private static final String INAPP_DATA_SIGNATURE = "INAPP_DATA_SIGNATURE";
+		private static final String INAPP_PURCHASE_DATA = "INAPP_PURCHASE_DATA";
 
 		private Billing mBilling;
 		private boolean mConnected = true;
@@ -36,51 +52,108 @@ public class Billing {
 			}
 		}
 
-		@Override
-		public IBinder asBinder() {
-			checkConnected();
-			return mBilling.mService.asBinder();
+		public void queryOwnedProducts() {
+			getPurchases("inapp");
 		}
 
-		@Override
-		public int isBillingSupported(int apiVersion, String packageName,
-				String type) throws RemoteException {
-			checkConnected();
-			return mBilling.mService.isBillingSupported(apiVersion,
-					packageName, type);
+		public void queryOwnedSubscriptions() {
+			getPurchases("subs");
 		}
 
-		@Override
-		public Bundle getSkuDetails(int apiVersion, String packageName,
-				String type, Bundle skusBundle) throws RemoteException {
+		private void getPurchases(final String type) {
 			checkConnected();
-			return mBilling.mService.getSkuDetails(apiVersion, packageName,
-					type, skusBundle);
+			mBilling.mExecutor.execute(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						String continuationToken = null;
+
+						do {
+							Bundle result = mBilling.mService.getPurchases(3,
+									mBilling.mContext.getPackageName(), type,
+									continuationToken);
+
+							int resultCode = result.getInt(RESPONSE_CODE);
+							if (resultCode != 0) {
+								deliverError(BillingError
+										.fromResponseCode(resultCode), listener);
+								return;
+							}
+
+							ArrayList<String> jsonArray = result
+									.getStringArrayList(INAPP_PURCHASE_DATA_LIST);
+							ArrayList<String> signatures = result
+									.getStringArrayList(INAPP_DATA_SIGNATURE_LIST);
+							continuationToken = result
+									.getString(INAPP_CONTINUATION_TOKEN);
+
+							for (int i = 0; i < jsonArray.size(); i++) {
+								String json = jsonArray.get(i);
+								String signature = signatures.get(i);
+								boolean valid = true;
+								if (mValidator != null) {
+									valid = mValidator.validateSignature(json,
+											signature);
+								}
+								if (valid) {
+									Purchase purchase = new Purchase(json,
+											signature);
+									purchases.add(purchase);
+								} else {
+									deliverError(
+											BillingError.INVALID_SIGNATURE,
+											listener);
+									return;
+								}
+							}
+						} while (continuationToken != null);
+
+						deliverPurchasesQueried(purchases, listener);
+					} catch (RemoteException e) {
+						deliverError(BillingError.REMOTE_EXCEPTION, listener);
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						return;
+					}
+				}
+			});
 		}
 
-		@Override
-		public Bundle getBuyIntent(int apiVersion, String packageName,
-				String sku, String type, String developerPayload)
-				throws RemoteException {
-			checkConnected();
-			return mBilling.mService.getBuyIntent(apiVersion, packageName, sku,
-					type, developerPayload);
+		public void requestProductInfo(String... productIds) {
+			// TODO
 		}
 
-		@Override
-		public Bundle getPurchases(int apiVersion, String packageName,
-				String type, String continuationToken) throws RemoteException {
-			checkConnected();
-			return mBilling.mService.getPurchases(apiVersion, packageName,
-					type, continuationToken);
+		public void requestSubscriptionInfo(String... productIds) {
+			// TODO
 		}
 
+		public void purchaseProduct(String id, String payload) {
+			// TODO
+		}
+
+		public void purchaseSubscription(String id, String payload) {
+			// TODO
+		}
+
+		public void consumeProduct(Purchase purchase) {
+			// TODO
+		}
+	}
+
+	private class CleanupThread extends Thread {
 		@Override
-		public int consumePurchase(int apiVersion, String packageName,
-				String purchaseToken) throws RemoteException {
-			checkConnected();
-			return mBilling.mService.consumePurchase(apiVersion, packageName,
-					purchaseToken);
+		public void run() {
+			mExecutor.shutdown();
+			try {
+				mExecutor.awaitTermination(10, TimeUnit.SECONDS);
+			} catch (InterruptedException e) {
+				mExecutor.shutdownNow();
+			}
+			mExecutor = null;
+			mContext.unbindService(mConnection);
+			mContext = null;
+			mConnection = null;
+			mService = null;
 		}
 	}
 
@@ -92,6 +165,7 @@ public class Billing {
 	private boolean mBound;
 	private IInAppBillingService mService;
 	private int mConnections;
+	private ExecutorService mExecutor;
 
 	private Billing(Context context) {
 		mContext = context.getApplicationContext();
@@ -107,6 +181,7 @@ public class Billing {
 		Intent i = new Intent(
 				"com.android.vending.billing.InAppBillingService.BIND");
 		mBound = mContext.bindService(i, mConnection, Context.BIND_AUTO_CREATE);
+		mExecutor = Executors.newCachedThreadPool();
 	}
 
 	private void closeConnection(BillingConnection billingConnection) {
@@ -121,11 +196,8 @@ public class Billing {
 
 	private void tryDisconnect() {
 		if (mConnections == 0) {
-			mContext.unbindService(mConnection);
 			sInstance = null;
-			mContext = null;
-			mConnection = null;
-			mService = null;
+			new CleanupThread().start();
 		}
 	}
 
@@ -139,6 +211,8 @@ public class Billing {
 			if (sInstance.mBound) {
 				sInstance.mConnections++;
 				connection = new BillingConnection(sInstance);
+			} else {
+				sInstance.tryDisconnect();
 			}
 		} finally {
 			sLock.unlock();
